@@ -4,6 +4,8 @@
 
 **Share idle AI subscriptions, earn credits, access more models**
 
+[English](./README.md) | [中文](./README-zh.md)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-blue)](https://github.com/datavii/cc-share/releases)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/datavii/cc-share/releases)
