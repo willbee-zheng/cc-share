@@ -1,0 +1,34 @@
+{
+  "title": "钱包",
+  "refresh": "刷新",
+  "balance": {
+    "available": "可用积分",
+    "frozen": "冻结积分",
+    "totalEarned": "累计收益",
+    "todaySupplied": "今日供应 Token",
+    "todayConsumed": "今日消费 Token",
+    "totalSupplied": "累计供应",
+    "totalConsumed": "累计消费"
+  },
+  "chart": {
+    "title": "近 24 小时供应 / 消费 Token 趋势",
+    "empty": "暂无数据"
+  },
+  "transactions": {
+    "title": "最近交易",
+    "empty": "暂无交易记录",
+    "time": "时间",
+    "direction": "方向",
+    "model": "模型",
+    "prompt": "Prompt",
+    "completion": "Completion",
+    "total": "合计",
+    "tokens": "Tokens",
+    "credits": "积分",
+    "status": "状态",
+    "dir": {
+      "supply": "供应",
+      "consume": "消费"
+    }
+  }
+}

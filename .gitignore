@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.pnpm-store/
+
+# Rust
+target/
+src-tauri/target/
+**/*.rs.bk
+
+# Secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Database (local user data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+*.pid
+
+# Tauri
+src-tauri/gen/
+release/
+
+# Misc
+nul

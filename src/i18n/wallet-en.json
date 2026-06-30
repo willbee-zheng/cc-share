@@ -1,0 +1,34 @@
+{
+  "title": "Wallet",
+  "refresh": "Refresh",
+  "balance": {
+    "available": "Available Credits",
+    "frozen": "Frozen Credits",
+    "totalEarned": "Total Earned",
+    "todaySupplied": "Supplied Tokens Today",
+    "todayConsumed": "Consumed Tokens Today",
+    "totalSupplied": "Total Supplied",
+    "totalConsumed": "Total Consumed"
+  },
+  "chart": {
+    "title": "Last 24h Supplied / Consumed Tokens",
+    "empty": "No data yet"
+  },
+  "transactions": {
+    "title": "Recent Transactions",
+    "empty": "No transactions yet",
+    "time": "Time",
+    "direction": "Direction",
+    "model": "Model",
+    "prompt": "Prompt",
+    "completion": "Completion",
+    "total": "Total",
+    "tokens": "Tokens",
+    "credits": "Credits",
+    "status": "Status",
+    "dir": {
+      "supply": "Supply",
+      "consume": "Consume"
+    }
+  }
+}

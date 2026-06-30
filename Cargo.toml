@@ -1,0 +1,6 @@
+# This directory is the SharePlan standalone Tauri app root (frontend + Node config).
+# The Rust crate lives in src-tauri/. This file exists only as a workspace boundary
+# marker so cargo does not try to parse a non-existent src/lib.rs here.
+[workspace]
+members = ["src-tauri"]
+resolver = "2"

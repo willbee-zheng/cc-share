@@ -1,0 +1,221 @@
+{
+  "title": "Share",
+  "tabs": {
+    "share": "Share",
+    "consume": "Consume",
+    "wallet": "Wallet",
+    "providers": "Providers",
+    "settings": "Settings",
+    "logs": "Logs",
+    "providersHint": "Provider whitelist will be available after Phase 4 (cc-switch proxy discovery).",
+    "settingsHint": "Settings will be available after Phase 5."
+  },
+  "status": {
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "connecting": "Connecting...",
+    "reconnecting": "Reconnecting..."
+  },
+  "health": {
+    "checking": "Checking...",
+    "healthy": "Server OK",
+    "unhealthy": "Server Down"
+  },
+  "sharing": {
+    "title": "Subscription Sharing",
+    "description": "Share your idle AI subscriptions to earn credits, or use others' subscriptions via the shared pool.",
+    "enable": "Enable Sharing",
+    "enableHint": "Allow other users to use your idle subscription capacity",
+    "disable": "Stop Sharing",
+    "start": "Start Sharing",
+    "stop": "Stop Sharing",
+    "cancel": "Cancel",
+    "noModels": "No shareable models found. Please start cc-switch and configure a provider first.",
+    "noModelsCcswitchUnreachable": "cc-switch proxy is unreachable. Make sure cc-switch is running and listening on 127.0.0.1:15721.",
+    "noModelsCcswitchNotRunning": "cc-switch proxy is not running. Start cc-switch and enable its proxy.",
+    "noModelsNoProvider": "cc-switch is connected but no provider is configured. Add and enable at least one provider in cc-switch.",
+    "noModelsHint": "No models detected. Make sure cc-switch is running and has a provider configured.",
+    "availableModels": "Shareable models:",
+    "status": {
+      "idle": "Idle",
+      "sharing": "Sharing",
+      "busy": "Busy (Local Use)",
+      "paused": "Paused"
+    }
+  },
+  "stats": {
+    "title": "Sharing Stats",
+    "sharedRequests": "Shared Requests",
+    "sharedTokens": "Shared Tokens",
+    "suppliedTokens": "Total Supplied Tokens",
+    "completed": "Completed",
+    "earnedCredits": "Earned Credits",
+    "successRate": "Success Rate",
+    "status": "Status",
+    "byModelTitle": "By Model (Last 7d Top 5)",
+    "byModelEmpty": "No supply data yet",
+    "model": "Model",
+    "prompt": "Prompt",
+    "completion": "Completion",
+    "total": "Total Tokens",
+    "taskCount": "Tasks"
+  },
+  "settings": {
+    "title": "Sharing Settings",
+    "maxTokenPerMin": "Max Tokens/min",
+    "concurrencyLimit": "Max Concurrent",
+    "pricing": "Pricing (credits/1K tokens)",
+    "cooldown": "Cooldown (seconds)"
+  },
+  "config": {
+    "title": "Connection Config",
+    "loading": "Loading config...",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "unsaved": "Unsaved",
+    "serverHost": "Server Address",
+    "authToken": "Auth Token",
+    "authTokenPlaceholder": "Get from your cloud account",
+    "hmacSecret": "HMAC Signing Secret",
+    "hmacSecretPlaceholder": "Must match cloud auth.hmac_secret",
+    "nodeId": "Node ID",
+    "heartbeatInterval": "Heartbeat Interval (sec)",
+    "maxReconnect": "Max Reconnect Interval (sec)"
+  },
+  "errors": {
+    "noNode": "No supplier node is available right now. Please try again later.",
+    "insufficientBalance": "Insufficient credits. Please top up first.",
+    "taskTimeout": "Request timed out (no response within 30s). Try again or pick a different model.",
+    "fingerprintMismatch": "Device fingerprint mismatch — this node ID is already bound to another device. Reset the binding from your cloud account.",
+    "invalidToken": "Authentication failed. Your token is invalid or has expired — please sign in again.",
+    "nonceReplay": "Request rejected as a replay. Please check that your system clock is accurate.",
+    "clockSkew": "Your system clock is off by more than 5 minutes. Please sync your clock.",
+    "invalidSignature": "Bad request signature — verify that the HMAC secret matches the cloud server.",
+    "rateLimited": "Too many requests. Please slow down and try again shortly.",
+    "noExtension": "No paired browser extension detected. Enter the pairing token in the extension first.",
+    "webBusy": "You're currently using this site. Sharing is paused (resumes after 5 minutes idle).",
+    "webOffline": "The corresponding web subscription is not available. Check that you're signed in to the site in your browser.",
+    "badPairingToken": "Bad bridge pairing token. Copy the latest token from the desktop app.",
+    "serverUrlMissing": "Please set the server address in the configuration first.",
+    "authTokenMissing": "Please set the auth token in the configuration first.",
+    "nodeIdMissing": "Please set the node ID in the configuration first.",
+    "category": {
+      "auth": "Authentication Error",
+      "path": "Invalid Server Address",
+      "network": "Network Error",
+      "tls": "TLS/SSL Error",
+      "other": "Connection Error"
+    }
+  },
+  "calculator": {
+    "title": "Earnings Calculator",
+    "activeHours": "Daily Active Hours",
+    "tokensPerHour": "Tokens per Hour",
+    "model": "Primary Model",
+    "daily": "Daily Estimate",
+    "monthly": "Monthly Estimate",
+    "disclaimer": "Actual earnings depend on match frequency and model mix; assumes 90% supplier rate over 30 days."
+  },
+  "consume": {
+    "title": "Consume",
+    "roleWarning": "You are currently sharing as a supplier. Switching to consumer mode will stop sharing.",
+    "roleWarningShort": "Supplier mode active — switch to consume?",
+    "startProxy": "Start Proxy",
+    "stopProxy": "Stop Proxy",
+    "proxyRunning": "Proxy running at",
+    "proxyStopped": "Proxy stopped",
+    "proxyNotConfigured": "Cloud server not configured. Set up connection config first.",
+    "generateConfig": "Generate Config",
+    "copyConfig": "Copy Config",
+    "copied": "Copied!",
+    "selectAppType": "Application",
+    "selectModel": "Model",
+    "configPreview": "Config Preview",
+    "appTypes": {
+      "claude": "Claude",
+      "codex": "Codex",
+      "gemini": "Gemini"
+    },
+    "models": {
+      "claude-sonnet-4": "Claude Sonnet 4",
+      "claude-opus-4": "Claude Opus 4",
+      "claude-haiku-4": "Claude Haiku 4",
+      "gpt-4o": "GPT-4o",
+      "gpt-4o-mini": "GPT-4o Mini",
+      "gemini-2.5-pro": "Gemini 2.5 Pro",
+      "gemini-2.5-flash": "Gemini 2.5 Flash"
+    },
+    "role": {
+      "idle": "Idle",
+      "supplier": "Sharing",
+      "consumer": "Consuming"
+    },
+    "statsTitle": "Consume Stats (Last 7d)",
+    "consumedTokens": "Total Consumed Tokens",
+    "modelCount": "Models",
+    "byModelEmpty": "No consume data yet",
+    "model": "Model",
+    "prompt": "Prompt",
+    "completion": "Completion",
+    "total": "Total Tokens",
+    "taskCount": "Tasks"
+  },
+  "guide": {
+    "back": "Back",
+    "next": "Next",
+    "finish": "Get Started",
+    "done": "All set!",
+    "errors": {
+      "required": "Server address, token, and node ID are all required"
+    },
+    "welcome": {
+      "title": "Welcome to CC-Share",
+      "description": "Turn idle AI subscription capacity into credits, or use others' subscriptions at a better price.",
+      "bulletEarn": "Supplier mode: lend out idle quota when you're not using it (90% to you)",
+      "bulletConsume": "Consumer mode: route local requests to the shared pool, pay per token",
+      "bulletSafety": "Local-first: sharing pauses automatically the moment you start using your tool"
+    },
+    "config": {
+      "title": "Connect to the cloud",
+      "description": "Enter the server address (domain or domain:port) and your auth token. No need to specify the API path."
+    },
+    "role": {
+      "title": "Pick your role",
+      "description": "You can switch any time later from the Share panel.",
+      "supplier": {
+        "title": "🚀 Supplier (earn credits)",
+        "description": "Share idle API quota or web subscriptions; pauses automatically when you're using them."
+      },
+      "consumer": {
+        "title": "💰 Consumer (use models)",
+        "description": "Route requests through the pool to use someone else's subscription at lower cost."
+      },
+      "both": {
+        "title": "♻️ Both",
+        "description": "Supply and consume at once — earn while idle, spend when busy."
+      }
+    }
+  },
+  "logs": {
+    "title": "System Logs",
+    "empty": "No logs yet",
+    "refresh": "Refresh",
+    "clear": "Clear",
+    "clearConfirm": "Confirm clear?",
+    "showDebug": "Show Debug",
+    "hideDebug": "Hide Debug",
+    "allModules": "All Modules",
+    "searchPlaceholder": "Search logs...",
+    "time": "Time",
+    "levelLabel": "Level",
+    "module": "Module",
+    "message": "Message",
+    "level": {
+      "debug": "Debug",
+      "info": "Info",
+      "warn": "Warn",
+      "error": "Error"
+    }
+  }
+}
