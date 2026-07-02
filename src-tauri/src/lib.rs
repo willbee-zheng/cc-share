@@ -17,6 +17,7 @@ pub mod database;
 pub mod diagnostics;
 pub mod error;
 pub mod local_server;
+pub mod p2p;
 pub mod share;
 pub mod stats;
 pub mod system_log;
@@ -27,6 +28,8 @@ use commands::providers::ProviderState;
 use ccswitch::{CcSwitchProxyClient, ProxyExecutor, ProviderRegistry};
 use database::ShareDb;
 use diagnostics::Diagnostics;
+use p2p::connection::{P2PConnectionManager, DEFAULT_P2P_PORT};
+use p2p::key::P2PKeyManager;
 use share::client::{ClientConfig, ConnectionState};
 use share::daemon::Daemon;
 use share::executor::SharedExecutor;
@@ -46,6 +49,10 @@ pub struct ShareState {
     pub client_config: RwLock<ClientConfig>,
     /// Daemon started on `share_connect`, stopped on `share_disconnect`.
     pub daemon: Mutex<Daemon>,
+    /// P2P key manager for E2E encryption (X25519 key pair).
+    pub p2p_key_manager: Arc<P2PKeyManager>,
+    /// P2P connection manager for QUIC direct connections.
+    pub p2p_conn_manager: Arc<P2PConnectionManager>,
 }
 
 /// Tauri event names exposed to the frontend.
@@ -58,6 +65,12 @@ pub mod events {
     pub const LOG_APPENDED: &str = "share:log-appended";
     /// Emitted when auth state changes (browser login, token refresh, etc.)
     pub const AUTH_STATE_CHANGED: &str = "share:auth-state-changed";
+    /// P2P session state changed (awaiting_answer, connecting, connected, executing, completed, failed).
+    /// Payload: { session_id, state, peer_address?, model?, error? }
+    pub const P2P_SESSION_STATE: &str = "share:p2p-session-state";
+    /// P2P connection status changed (started, stopped, peer_connected, peer_disconnected).
+    /// Payload: { status, port?, peer_address?, active_connections }
+    pub const P2P_CONNECTION_STATUS: &str = "share:p2p-connection-status";
 }
 
 /// Boot the SharePlan desktop app.
@@ -136,6 +149,10 @@ pub fn run() {
             commands::local_server::start_local_server,
             commands::local_server::stop_local_server,
             commands::local_server::get_local_server_addr,
+            commands::p2p::p2p_get_public_key,
+            commands::p2p::p2p_get_status,
+            commands::p2p::p2p_start,
+            commands::p2p::p2p_stop,
             commands::system_log::get_system_logs,
             commands::system_log::clear_system_logs,
             commands::system_log::get_system_log_stats,
@@ -159,6 +176,15 @@ pub fn run() {
                 ProxyExecutor::new(proxy_client) as SharedExecutor;
             let daemon = Daemon::new(db.clone(), executor, "default".into(), registry.clone());
             let db_for_providers = db.clone();
+
+            // Initialize P2P key manager (generate or load X25519 key pair).
+            let p2p_key_manager = Arc::new(P2PKeyManager::generate());
+            log::info!("P2P: generated key pair, public key = {}...", &p2p_key_manager.public_key_base64()[..16]);
+
+            // Initialize P2P connection manager (QUIC endpoint).
+            let mut p2p_conn_manager = P2PConnectionManager::new(p2p_key_manager.clone(), DEFAULT_P2P_PORT);
+            p2p_conn_manager.set_app_handle(app.handle().clone());
+            let p2p_conn_manager = Arc::new(p2p_conn_manager);
 
             // 启动 system_log batch writer：从 log_rx 取出待写日志批量入库，
             // 每次 flush 后通过 LOG_APPENDED 事件通知前端实时刷新。
@@ -199,6 +225,8 @@ pub fn run() {
                 connection_state: Arc::new(RwLock::new(ConnectionState::Disconnected)),
                 client_config: RwLock::new(ClientConfig::default()),
                 daemon: Mutex::new(daemon),
+                p2p_key_manager,
+                p2p_conn_manager,
             });
 
             app.manage(ProviderState {

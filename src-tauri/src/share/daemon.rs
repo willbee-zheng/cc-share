@@ -230,6 +230,7 @@ impl Daemon {
                     upstream_models: snap.upstream_models,
                     current_concurrency: 0,
                     max_concurrency: refresh_max_concurrency,
+                    p2p_public_key: None,
                 };
                 log::info!("daemon refresh: sending updated NodeStatus with {} models", status.available_models.len());
                 let _ = refresh_tx.send(OutgoingMessage::NodeStatus(status));
@@ -258,6 +259,7 @@ impl Daemon {
                 upstream_models: HashMap::new(),
                 current_concurrency: 0,
                 max_concurrency: 0,
+                p2p_public_key: None,
             }));
         }
 
@@ -315,6 +317,7 @@ mod tests {
             upstream_models: HashMap::new(),
             current_concurrency: 0,
             max_concurrency: 1,
+            p2p_public_key: None,
         };
         d.start(cfg.clone(), status.clone(), |_| {}).unwrap();
         let err = d.start(cfg, status, |_| {}).unwrap_err();

@@ -607,3 +607,30 @@ export function pruneSystemLogs(keepDays: number): Promise<number> {
   return invoke<number>(cmd("prune_system_logs"), { keepDays });
 }
 
+// ---------- P2P status ----------
+
+export interface P2PStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  public_key: string;
+  local_addresses: string[];
+  active_connections: number;
+}
+
+export function p2pGetStatus(): Promise<P2PStatus> {
+  return invoke<P2PStatus>(cmd("p2p_get_status"));
+}
+
+export function p2pGetPublicKey(): Promise<string> {
+  return invoke<string>(cmd("p2p_get_public_key"));
+}
+
+export function p2pStart(): Promise<void> {
+  return invoke<void>(cmd("p2p_start"));
+}
+
+export function p2pStop(): Promise<void> {
+  return invoke<void>(cmd("p2p_stop"));
+}
+

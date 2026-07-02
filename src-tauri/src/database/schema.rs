@@ -6,7 +6,7 @@
 use rusqlite::Connection;
 
 /// 当前 Schema 版本
-pub(crate) const SCHEMA_VERSION: i32 = 5;
+pub(crate) const SCHEMA_VERSION: i32 = 6;
 
 /// 创建所有数据库表
 pub fn create_tables(conn: &Connection) -> Result<(), String> {
@@ -235,6 +235,47 @@ pub fn apply_migrations(conn: &Connection, from_version: i32) -> Result<(), Stri
                 )
                 .map_err(|e| format!("v5 迁移 daily_sync_log 添加列失败: {e}"))?;
                 set_user_version(conn, 5)?;
+            }
+            5 => {
+                log::info!("share.db: 从 v5 迁移到 v6（添加 P2P 直连表）");
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS p2p_keypair (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        private_key BLOB NOT NULL,
+                        public_key BLOB NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )",
+                    [],
+                )
+                .map_err(|e| format!("v6 迁移 p2p_keypair 建表失败: {e}"))?;
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS p2p_connections (
+                        peer_id TEXT PRIMARY KEY,
+                        peer_pubkey BLOB NOT NULL,
+                        last_addr TEXT,
+                        last_connected INTEGER,
+                        success_count INTEGER NOT NULL DEFAULT 0,
+                        fail_count INTEGER NOT NULL DEFAULT 0
+                    )",
+                    [],
+                )
+                .map_err(|e| format!("v6 迁移 p2p_connections 建表失败: {e}"))?;
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS p2p_session_log (
+                        session_id TEXT PRIMARY KEY,
+                        task_id TEXT,
+                        peer_node_id TEXT NOT NULL,
+                        mode TEXT NOT NULL CHECK (mode IN ('p2p', 'relay')),
+                        status TEXT NOT NULL CHECK (status IN ('pending', 'connected', 'completed', 'failed')),
+                        prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                        completion_tokens INTEGER NOT NULL DEFAULT 0,
+                        latency_ms INTEGER,
+                        created_at INTEGER NOT NULL
+                    )",
+                    [],
+                )
+                .map_err(|e| format!("v6 迁移 p2p_session_log 建表失败: {e}"))?;
+                set_user_version(conn, 6)?;
             }
             _ => {
                 return Err(format!(

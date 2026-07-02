@@ -204,7 +204,7 @@ pub async fn chat_completions(
 /// Cloud may return `content` as a plain string or an array of blocks like:
 /// - `{"type":"text","text":"hello"}`
 /// - `{"type":"thinking","thinking":"..."}`
-fn extract_content_string(content: &Value) -> String {
+pub(super) fn extract_content_string(content: &Value) -> String {
     if let Some(s) = content.as_str() {
         return s.to_string();
     }
@@ -420,7 +420,7 @@ async fn stream_openai_sse(resp: reqwest::Response, model: String) -> Response {
         .into_response()
 }
 
-fn build_params(req: &ChatCompletionRequest) -> Value {
+pub(super) fn build_params(req: &ChatCompletionRequest) -> Value {
     let mut params = serde_json::Map::new();
     if let Some(t) = req.temperature {
         params.insert("temperature".into(), json!(t));
@@ -431,13 +431,13 @@ fn build_params(req: &ChatCompletionRequest) -> Value {
     Value::Object(params)
 }
 
-fn estimate_tokens(messages: &Value) -> u32 {
+pub(super) fn estimate_tokens(messages: &Value) -> u32 {
     // 4 chars/token heuristic, matching cloud-server's estimate.
     let s = messages.to_string();
     (s.len() as u32) / 4
 }
 
-fn map_status(s: reqwest::StatusCode) -> StatusCode {
+pub(super) fn map_status(s: reqwest::StatusCode) -> StatusCode {
     match s.as_u16() {
         503 => StatusCode::SERVICE_UNAVAILABLE,
         504 => StatusCode::GATEWAY_TIMEOUT,
@@ -447,7 +447,7 @@ fn map_status(s: reqwest::StatusCode) -> StatusCode {
 }
 
 /// Truncate a string for logging, avoiding giant log lines.
-fn truncate_str(s: &str, max_len: usize) -> String {
+pub(super) fn truncate_str(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {

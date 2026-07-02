@@ -158,6 +158,7 @@ pub async fn share_connect<R: Runtime>(
         upstream_models,
         current_concurrency: 0,
         max_concurrency: args.max_concurrency.unwrap_or(1),
+        p2p_public_key: None,
     };
 
     log::info!("share_connect: connecting node_id={}, max_concurrency={}", node_id, status.max_concurrency);

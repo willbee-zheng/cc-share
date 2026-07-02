@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, Play, Settings2, Share2, Square, Wifi, WifiOff, AlertTriangle } from "lucide-react";
+import { Activity, Play, Settings2, Share2, Square, Wifi, WifiOff, AlertTriangle, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,19 +20,25 @@ import {
   subscribeConnectionState,
   subscribeConnectionError,
   subscribeTaskFinished,
+  subscribeP2PSessionState,
+  subscribeP2PConnectionStatus,
   type ConnectionState,
   type ConnectionErrorEvent,
   type TaskFinishedEvent,
+  type P2PSessionState,
+  type P2PConnectionEvent,
 } from "../lib/events";
 import {
   getShareableModels,
   getSupplierTokenByModel,
+  p2pGetStatus,
   refreshProviders,
   shareConnect,
   shareDisconnect,
   shareGetStatus,
   type ModelTokenStat,
   type ActiveTarget,
+  type P2PStatus,
 } from "../lib/api";
 import { friendlyError } from "../lib/errors";
 import { ShareConfigForm } from "./ShareConfigForm";
@@ -64,6 +70,10 @@ export function SharePanel({ onSignInNeeded }: { onSignInNeeded?: () => void }) 
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [upstreamModels, setUpstreamModels] = useState<Record<string, string>>({});
   const [providers, setProviders] = useState<ActiveTarget[]>([]);
+  // P2P state
+  const [p2pStatus, setP2PStatus] = useState<P2PStatus | null>(null);
+  const [p2pSessionState, setP2PSessionState] = useState<P2PSessionState | null>(null);
+  const [p2pActiveConns, setP2PActiveConns] = useState(0);
 
   async function refreshModelStats() {
     try {
@@ -102,6 +112,8 @@ export function SharePanel({ onSignInNeeded }: { onSignInNeeded?: () => void }) 
     });
     void refreshModelStats();
     void fetchModels();
+    // Fetch initial P2P status
+    p2pGetStatus().then((s) => { if (!cancelled) setP2PStatus(s); }).catch(() => {});
 
     const cleanups: Array<() => void> = [];
 
@@ -127,6 +139,20 @@ export function SharePanel({ onSignInNeeded }: { onSignInNeeded?: () => void }) 
       }));
       // 任务完成后刷新按模型统计
       void refreshModelStats();
+    }).then((un) => cleanups.push(un));
+
+    void subscribeP2PSessionState((evt) => {
+      if (cancelled) return;
+      setP2PSessionState(evt.state);
+      // Refresh P2P status on session state change
+      p2pGetStatus().then((s) => { if (!cancelled) setP2PStatus(s); }).catch(() => {});
+    }).then((un) => cleanups.push(un));
+
+    void subscribeP2PConnectionStatus((evt: P2PConnectionEvent) => {
+      if (cancelled) return;
+      setP2PActiveConns(evt.active_connections);
+      // Refresh full P2P status
+      p2pGetStatus().then((s) => { if (!cancelled) setP2PStatus(s); }).catch(() => {});
     }).then((un) => cleanups.push(un));
 
     return () => {
@@ -199,6 +225,24 @@ export function SharePanel({ onSignInNeeded }: { onSignInNeeded?: () => void }) 
       ? <WifiOff className="w-4 h-4 text-zinc-400" />
       : <Wifi className="w-4 h-4 text-amber-500 animate-pulse" />;
 
+  // P2P session state display helpers
+  const p2pSessionLabel: Record<P2PSessionState, string> = {
+    awaiting_answer: t("p2p.awaitingAnswer", "Awaiting answer"),
+    connecting: t("p2p.connecting", "P2P connecting…"),
+    connected: t("p2p.connected", "P2P connected"),
+    executing: t("p2p.executing", "P2P task running"),
+    completed: t("p2p.completed", "P2P completed"),
+    failed: t("p2p.failed", "P2P failed"),
+  };
+  const p2pSessionColor: Record<P2PSessionState, string> = {
+    awaiting_answer: "text-amber-500",
+    connecting: "text-amber-500 animate-pulse",
+    connected: "text-emerald-500",
+    executing: "text-blue-500",
+    completed: "text-emerald-500",
+    failed: "text-red-500",
+  };
+
   return (
     <div className="space-y-6">
       <FirstRunGuide />
@@ -218,6 +262,26 @@ export function SharePanel({ onSignInNeeded }: { onSignInNeeded?: () => void }) 
             <p className="font-medium">{t(`errors.category.${connectionError.category}`)}</p>
             <p className="mt-1 text-xs opacity-80">{connectionError.message}</p>
           </div>
+        </div>
+      )}
+
+      {/* P2P status indicator */}
+      {p2pStatus && p2pStatus.running && (
+        <div className="flex items-center gap-2 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-2 text-sm">
+          <Radio className="w-4 h-4 text-emerald-500" />
+          <span className="text-emerald-700 dark:text-emerald-300 font-medium">
+            {t("p2p.directConnected", "P2P Direct")}
+          </span>
+          <span className="text-muted-foreground text-xs">
+            {p2pActiveConns > 0
+              ? t("p2p.activePeers", "{{count}} peer(s)", { count: p2pActiveConns })
+              : t("p2p.listening", "Listening…")}
+          </span>
+          {p2pSessionState && (
+            <span className={`text-xs ${p2pSessionColor[p2pSessionState] ?? ""}`}>
+              {p2pSessionLabel[p2pSessionState]}
+            </span>
+          )}
         </div>
       )}
 

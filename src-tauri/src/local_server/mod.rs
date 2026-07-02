@@ -6,12 +6,16 @@
 //! the SharePlan cloud-server `/api/v1/dispatch` endpoint, signing with the
 //! user's JWT + HMAC.
 //!
-//! Non-streaming: one JSON response in OpenAI Chat Completion shape.
-//! Streaming: SSE in OpenAI `chat.completion.chunk` shape, terminated by
-//! `data: [DONE]`. The cloud's `task_result` frames are translated:
-//!   - delta frame (status=running) → chunk with `choices[0].delta.content`
-//!   - final frame (status=completed, usage) → final chunk + [DONE]
+//! Supported endpoints:
+//! - `GET  /v1/models`            — static model catalog
+//! - `POST /v1/chat/completions`  — OpenAI Chat Completions format
+//! - `POST /v1/messages`          — Anthropic Messages API format
+//! - `GET  /health`               — liveness check
+//!
+//! Non-streaming: one JSON response in the respective API shape.
+//! Streaming: SSE in the respective API shape (OpenAI chunks or Anthropic events).
 
+pub mod anthropic_compat;
 pub mod openai_compat;
 
 use std::net::SocketAddr;
@@ -53,6 +57,7 @@ pub fn router(state: Arc<LocalServerState>) -> Router {
     Router::new()
         .route("/v1/models", get(openai_compat::list_models))
         .route("/v1/chat/completions", post(openai_compat::chat_completions))
+        .route("/v1/messages", post(anthropic_compat::messages))
         .route("/health", get(|| async { "ok" }))
         .with_state(state)
 }

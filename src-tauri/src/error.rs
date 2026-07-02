@@ -28,3 +28,9 @@ impl From<rusqlite::Error> for ShareError {
         ShareError::Database(err.to_string())
     }
 }
+
+impl From<String> for ShareError {
+    fn from(err: String) -> Self {
+        ShareError::Connection(err)
+    }
+}

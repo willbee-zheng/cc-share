@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Copy, Check, Play, Square, AlertTriangle } from "lucide-react";
+import { Copy, Check, Play, Square, AlertTriangle, Radio } from "lucide-react";
 import {
   type Role,
   getRole,
@@ -10,9 +10,19 @@ import {
   stopLocalServer,
   getLocalServerAddr,
   getConsumerTokenByModel,
+  p2pGetStatus,
   type ModelTokenStat,
+  type P2PStatus,
 } from "@/lib/api";
-import { subscribeConnectionState, subscribeRoleChanged, subscribeTaskFinished } from "@/lib/events";
+import {
+  subscribeConnectionState,
+  subscribeRoleChanged,
+  subscribeTaskFinished,
+  subscribeP2PSessionState,
+  subscribeP2PConnectionStatus,
+  type P2PSessionState,
+  type P2PConnectionEvent,
+} from "@/lib/events";
 import { cn } from "@/components/ui/cn";
 import {
   Table,
@@ -67,6 +77,10 @@ export function ConsumePanel() {
   const [isSupplierActive, setIsSupplierActive] = useState(false);
   const [confirmSwitch, setConfirmSwitch] = useState(false);
   const [modelStats, setModelStats] = useState<ModelTokenStat[]>([]);
+  // P2P state for consumer
+  const [p2pStatus, setP2PStatus] = useState<P2PStatus | null>(null);
+  const [p2pSessionState, setP2PSessionState] = useState<P2PSessionState | null>(null);
+  const [p2pActiveConns, setP2PActiveConns] = useState(0);
 
   async function refreshModelStats() {
     try {
@@ -91,6 +105,8 @@ export function ConsumePanel() {
       if (!cancelled) setProxyAddr(addr);
     });
     void refreshModelStats();
+    // Fetch initial P2P status
+    p2pGetStatus().then((s) => { if (!cancelled) setP2PStatus(s); }).catch(() => {});
 
     void subscribeConnectionState((state) => {
       if (cancelled) return;
@@ -112,6 +128,18 @@ export function ConsumePanel() {
     void subscribeTaskFinished(() => {
       if (cancelled) return;
       void refreshModelStats();
+    }).then((un) => cleanups.push(un));
+
+    void subscribeP2PSessionState((evt) => {
+      if (cancelled) return;
+      setP2PSessionState(evt.state);
+      p2pGetStatus().then((s) => { if (!cancelled) setP2PStatus(s); }).catch(() => {});
+    }).then((un) => cleanups.push(un));
+
+    void subscribeP2PConnectionStatus((evt: P2PConnectionEvent) => {
+      if (cancelled) return;
+      setP2PActiveConns(evt.active_connections);
+      p2pGetStatus().then((s) => { if (!cancelled) setP2PStatus(s); }).catch(() => {});
     }).then((un) => cleanups.push(un));
 
     return () => {
@@ -245,6 +273,32 @@ export function ConsumePanel() {
             </span>
           </div>
         </div>
+
+        {/* P2P status indicator */}
+        {p2pStatus && p2pStatus.running && isProxyRunning && (
+          <div className="flex items-center gap-2 mb-3 px-2 py-1.5 rounded bg-emerald-50 dark:bg-emerald-950/30 text-xs">
+            <Radio className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="text-emerald-700 dark:text-emerald-300 font-medium">
+              {t("p2p.directConnected", "P2P Direct")}
+            </span>
+            {p2pSessionState && (
+              <span className={cn(
+                "text-xs",
+                p2pSessionState === "connected" ? "text-emerald-600 dark:text-emerald-400" :
+                p2pSessionState === "executing" ? "text-blue-600 dark:text-blue-400" :
+                p2pSessionState === "failed" ? "text-red-600 dark:text-red-400" :
+                "text-amber-600 dark:text-amber-400 animate-pulse"
+              )}>
+                {t(`p2p.${p2pSessionState}`, p2pSessionState)}
+              </span>
+            )}
+            {p2pActiveConns > 0 && (
+              <span className="text-muted-foreground">
+                {t("p2p.activePeers", "{{count}} peer(s)", { count: p2pActiveConns })}
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="flex gap-2">
           {!isProxyRunning ? (

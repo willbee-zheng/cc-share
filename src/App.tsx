@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Share2, Wallet, Settings, Server, ArrowDownToLine, ScrollText, LogOut, User, LogIn } from "lucide-react";
+import { Share2, Wallet, Settings, Server, ArrowDownToLine, ScrollText, Radio, LogOut, User, LogIn } from "lucide-react";
 import { SharePanel } from "./share/SharePanel";
 import { WalletPanel } from "./wallet/WalletPanel";
 import { ProvidersPanel } from "./providers/ProvidersPanel";
 import { SettingsPanel } from "./settings/SettingsPanel";
 import { ConsumePanel } from "./consume/ConsumePanel";
+import { P2PPanel } from "./p2p/P2PPanel";
 import { SystemLogPanel } from "./system_log/SystemLogPanel";
 import { useAuthState } from "./auth/AuthPanel";
 import { AuthDialog } from "./auth/AuthDialog";
@@ -14,13 +15,14 @@ import { subscribeAuthStateChanged } from "@/lib/events";
 import { cn } from "@/components/ui/cn";
 import { Button } from "@/components/ui/button";
 
-type Tab = "share" | "consume" | "wallet" | "providers" | "settings" | "logs";
+type Tab = "share" | "consume" | "wallet" | "providers" | "p2p" | "logs" | "settings";
 
 const TABS: { id: Tab; icon: typeof Share2; titleKey: string }[] = [
   { id: "share", icon: Share2, titleKey: "tabs.share" },
   { id: "consume", icon: ArrowDownToLine, titleKey: "tabs.consume" },
   { id: "wallet", icon: Wallet, titleKey: "tabs.wallet" },
   { id: "providers", icon: Server, titleKey: "tabs.providers" },
+  { id: "p2p", icon: Radio, titleKey: "tabs.p2p" },
   { id: "logs", icon: ScrollText, titleKey: "tabs.logs" },
   { id: "settings", icon: Settings, titleKey: "tabs.settings" },
 ];
@@ -208,6 +210,7 @@ export default function App() {
         {tab === "consume" && <ConsumePanel />}
         {tab === "wallet" && <WalletPanel />}
         {tab === "providers" && <ProvidersPanel />}
+        {tab === "p2p" && <P2PPanel />}
         {tab === "logs" && <SystemLogPanel />}
         {tab === "settings" && <SettingsPanel onServerHostChanged={setServerHost} onSignInNeeded={!authState && serverHost ? () => setShowAuthDialog(true) : undefined} />}
       </main>

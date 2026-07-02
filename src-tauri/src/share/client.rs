@@ -95,6 +95,8 @@ pub enum OutgoingMessage {
     NodeStatus(NodeStatus),
     TaskResult(TaskResult),
     Heartbeat,
+    /// P2P 信令：回复 P2P offer
+    P2pAnswer(crate::share::protocol::P2PAnswer),
 }
 
 /// WebSocket 客户端接收的消息类型
@@ -105,6 +107,8 @@ pub enum IncomingMessage {
     Task(TaskPayload),
     /// 云端心跳回执
     Pong,
+    /// P2P 信令：云端请求本节点接受直连
+    P2pOffer(crate::share::protocol::P2POffer),
 }
 
 /// P2P 客户端，管理与云端调度服务器的 WebSocket 长连接
@@ -114,6 +118,8 @@ pub struct P2PClient {
     outgoing_rx: Option<mpsc::UnboundedReceiver<OutgoingMessage>>,
     running: Arc<AtomicBool>,
     error_callback: Option<Box<dyn Fn(ConnectionErrorInfo) + Send + Sync>>,
+    /// Channel for P2P offer messages received from the cloud.
+    p2p_offer_tx: Option<mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
 }
 
 type WsSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>;
@@ -128,7 +134,13 @@ impl P2PClient {
             outgoing_rx: Some(rx),
             running: Arc::new(AtomicBool::new(false)),
             error_callback: None,
+            p2p_offer_tx: None,
         }
+    }
+
+    /// Set the channel for receiving P2P offer messages from the cloud.
+    pub fn set_p2p_offer_channel(&mut self, tx: mpsc::UnboundedSender<crate::share::protocol::P2POffer>) {
+        self.p2p_offer_tx = Some(tx);
     }
 
     /// 获取发送端，用于从其他模块发送消息
@@ -186,6 +198,7 @@ impl P2PClient {
                         ws_stream,
                         &mut outgoing_rx,
                         &task_tx,
+                        self.p2p_offer_tx.as_ref(),
                         self.config.heartbeat_interval_secs,
                         self.running.clone(),
                     )
@@ -273,6 +286,7 @@ async fn run_session(
     ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
     outgoing_rx: &mut mpsc::UnboundedReceiver<OutgoingMessage>,
     task_tx: &mpsc::UnboundedSender<TaskPayload>,
+    p2p_offer_tx: Option<&mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
     heartbeat_interval_secs: u64,
     running: Arc<AtomicBool>,
 ) -> Result<(), ShareError> {
@@ -292,11 +306,11 @@ async fn run_session(
             frame = stream.next() => {
                 match frame {
                     Some(Ok(tungstenite::Message::Text(txt))) => {
-                        handle_incoming_text(&txt, task_tx);
+                        handle_incoming_text(&txt, task_tx, p2p_offer_tx);
                     }
                     Some(Ok(tungstenite::Message::Binary(b))) => {
                         if let Ok(txt) = std::str::from_utf8(&b) {
-                            handle_incoming_text(txt, task_tx);
+                            handle_incoming_text(txt, task_tx, p2p_offer_tx);
                         }
                     }
                     Some(Ok(tungstenite::Message::Ping(p))) => {
@@ -334,7 +348,7 @@ async fn run_session(
     }
 }
 
-fn handle_incoming_text(txt: &str, task_tx: &mpsc::UnboundedSender<TaskPayload>) {
+fn handle_incoming_text(txt: &str, task_tx: &mpsc::UnboundedSender<TaskPayload>, p2p_offer_tx: Option<&mpsc::UnboundedSender<crate::share::protocol::P2POffer>>) {
     // 云端的 task 消息是扁平的 {type:"task", task_id, model, ...}
     // 我们用一个 helper 结构来识别 type 后再把剩余字段反序列化为 TaskPayload。
     let probe: serde_json::Value = match serde_json::from_str(txt) {
@@ -353,6 +367,19 @@ fn handle_incoming_text(txt: &str, task_tx: &mpsc::UnboundedSender<TaskPayload>)
                 }
             }
             Err(e) => log::warn!("CC-Share: 解析 task 失败 - {e}"),
+        },
+        "p2p_offer" => match serde_json::from_value::<crate::share::protocol::P2POffer>(probe) {
+            Ok(offer) => {
+                log::info!("CC-Share: 收到 P2P offer session_id={}", offer.session_id);
+                if let Some(tx) = p2p_offer_tx {
+                    if tx.send(offer).is_err() {
+                        log::warn!("CC-Share: p2p_offer_tx 已关闭，丢弃 offer");
+                    }
+                } else {
+                    log::warn!("CC-Share: 无 P2P offer 通道，丢弃 offer");
+                }
+            }
+            Err(e) => log::warn!("CC-Share: 解析 p2p_offer 失败 - {e}"),
         },
         "pong" => { /* keep-alive ack — 仅刷新底层超时（由读 future 自动完成） */ }
         other => log::warn!("CC-Share: 未知消息类型 {other}"),

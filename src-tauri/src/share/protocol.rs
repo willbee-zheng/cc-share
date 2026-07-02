@@ -134,6 +134,9 @@ pub struct NodeStatus {
     pub current_concurrency: u32,
     /// 最大并发数
     pub max_concurrency: u32,
+    /// P2P E2E encryption public key (base64 X25519), registered with cloud
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p2p_public_key: Option<String>,
 }
 
 /// 节点在线状态
@@ -143,4 +146,46 @@ pub enum NodeState {
     Idle,
     Busy,
     Offline,
+}
+
+// --- P2P signaling messages ---
+
+/// P2P offer sent from cloud to supplier, requesting a direct P2P connection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2POffer {
+    /// Unique session ID for this P2P negotiation
+    pub session_id: String,
+    /// Consumer's STUN-derived network addresses
+    pub consumer_candidates: Vec<String>,
+    /// Consumer's X25519 public key (base64)
+    pub consumer_pubkey: String,
+    /// Preview of the task (model, token estimates)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_preview: Option<TaskPreview>,
+}
+
+/// Task preview for P2P offer (gives supplier a hint before accepting).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskPreview {
+    pub model: String,
+    pub est_prompt_tokens: u32,
+    pub max_output_tokens: u32,
+}
+
+/// P2P answer from supplier in response to a P2P offer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2PAnswer {
+    /// Session ID matching the offer
+    pub session_id: String,
+    /// Whether the supplier accepts the P2P connection
+    pub accepted: bool,
+    /// Supplier's STUN-derived network addresses
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supplier_candidates: Vec<String>,
+    /// Supplier's X25519 public key (base64)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supplier_pubkey: Option<String>,
+    /// Rejection reason if not accepted
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }

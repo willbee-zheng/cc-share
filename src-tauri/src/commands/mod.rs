@@ -6,6 +6,7 @@ pub mod auth;
 pub mod consume;
 pub mod consume_config;
 pub mod local_server;
+pub mod p2p;
 pub mod providers;
 pub mod share;
 pub mod stats;
