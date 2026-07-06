@@ -18,17 +18,17 @@ import {
   setClientConfig,
   type ClientConfig,
 } from "../lib/api";
+import { useViewRole, type ViewRole } from "@/lib/RoleContext";
 
 const STORAGE_KEY = "shareplan:onboarded";
 
 type Step = "welcome" | "config" | "role" | "done";
-type Role = "supplier" | "consumer" | "both";
 
 function isOnboarded(): boolean {
   return localStorage.getItem(STORAGE_KEY) === "1";
 }
 
-function markOnboarded(role: Role) {
+function markOnboarded(role: ViewRole) {
   localStorage.setItem(STORAGE_KEY, "1");
   localStorage.setItem("shareplan:role", role);
 }
@@ -39,10 +39,11 @@ function markOnboarded(role: Role) {
  */
 export function FirstRunGuide() {
   const { t } = useTranslation("share");
+  const { setViewRole } = useViewRole();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("welcome");
   const [config, setConfig] = useState<ClientConfig>(DEFAULT_CLIENT_CONFIG);
-  const [role, setRole] = useState<Role>("supplier");
+  const [role, setRole] = useState<ViewRole>("supplier");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,6 +93,7 @@ export function FirstRunGuide() {
 
   function handleFinish() {
     markOnboarded(role);
+    setViewRole(role);
     setStep("done");
     setTimeout(() => setOpen(false), 800);
   }

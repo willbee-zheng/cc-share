@@ -87,6 +87,15 @@ pub async fn start_local_server(
     *handle.addr.lock().await = Some(addr);
     *handle.shutdown.lock().await = Some(join);
     log::info!("✓ local OpenAI server listening on http://{addr}/v1");
+
+    // Auto-start P2P endpoint alongside the consumer proxy.
+    if !state.p2p_conn_manager.is_running().await {
+        match state.p2p_conn_manager.start().await {
+            Ok(()) => log::info!("start_local_server: P2P endpoint auto-started"),
+            Err(e) => log::warn!("start_local_server: P2P endpoint auto-start failed (non-fatal): {e}"),
+        }
+    }
+
     Ok(addr.to_string())
 }
 
@@ -94,7 +103,14 @@ pub async fn start_local_server(
 #[tauri::command]
 pub async fn stop_local_server(
     handle: tauri::State<'_, Arc<LocalServerHandle>>,
+    state: tauri::State<'_, ShareState>,
 ) -> Result<(), String> {
+    // Auto-stop P2P endpoint alongside the consumer proxy.
+    if state.p2p_conn_manager.is_running().await {
+        state.p2p_conn_manager.shutdown().await;
+        log::info!("stop_local_server: P2P endpoint auto-stopped");
+    }
+
     let join = {
         let mut shutdown = handle.shutdown.lock().await;
         shutdown.take()

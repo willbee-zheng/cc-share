@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::LocalServerState;
+use crate::p2p::consumer::P2PConsumer;
+use crate::share::consumer::{ConsumeRequest, ConsumerConfig};
 use crate::share::signing::{build_headers, HEADER_NONCE, HEADER_SIGNATURE, HEADER_TIMESTAMP};
 
 /// OpenAI `GET /v1/models` response shape.
@@ -102,8 +104,56 @@ pub async fn chat_completions(
         config_auth_token
     };
 
-    let dispatch_url = format!("{}/api/v1/dispatch", cloud_base.trim_end_matches('/'));
+    // Try P2P direct connection first, fall back to cloud relay on failure.
     let est_prompt = estimate_tokens(&req.messages);
+    let consume_request = ConsumeRequest {
+        model: req.model.clone(),
+        messages: req.messages.clone(),
+        stream: req.stream,
+        params: build_params(&req),
+        est_prompt_tokens: est_prompt,
+        max_output_tokens: req.max_tokens.unwrap_or(1024),
+    };
+
+    let relay_config = ConsumerConfig {
+        base_url: cloud_base.clone(),
+        auth_token: auth_token.clone(),
+        hmac_secret: hmac_secret.clone(),
+        request_timeout_secs: 300,
+    };
+    let mut p2p_consumer = P2PConsumer::new(
+        state.db.clone(),
+        relay_config,
+        state.p2p_conn_manager.clone(),
+        state.p2p_key_manager.clone(),
+    );
+    p2p_consumer.update_config(&cloud_base, &auth_token, &hmac_secret);
+
+    let p2p_response = p2p_consumer.consume(consume_request).await;
+    if p2p_response.success {
+        log::info!("local_server: P2P direct success for model={}", req.model);
+        let completion = json!({
+            "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
+            "object": "chat.completion",
+            "created": 0,
+            "model": req.model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": p2p_response.content},
+                "finish_reason": "stop",
+            }],
+            "usage": p2p_response.usage.map(|u| json!(u)).unwrap_or_else(|| json!({"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})),
+        });
+        return Json(completion).into_response();
+    }
+    if p2p_response.error.is_some() {
+        log::warn!("local_server: P2P direct failed for model={}: {:?}, falling back to relay", req.model, p2p_response.error);
+    } else {
+        log::info!("local_server: P2P not available for model={}, falling back to relay", req.model);
+    }
+
+    // Cloud relay fallback
+    let dispatch_url = format!("{}/api/v1/dispatch", cloud_base.trim_end_matches('/'));
     let body = json!({
         "model": req.model,
         "messages": req.messages,
@@ -433,7 +483,8 @@ pub(super) fn build_params(req: &ChatCompletionRequest) -> Value {
 
 pub(super) fn estimate_tokens(messages: &Value) -> u32 {
     // 4 chars/token heuristic, matching cloud-server's estimate.
-    let s = messages.to_string();
+    // Use compact JSON serialization to avoid counting pretty-print whitespace.
+    let s = serde_json::to_string(messages).unwrap_or_else(|_| messages.to_string());
     (s.len() as u32) / 4
 }
 

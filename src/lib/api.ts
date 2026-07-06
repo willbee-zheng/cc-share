@@ -616,6 +616,22 @@ export interface P2PStatus {
   public_key: string;
   local_addresses: string[];
   active_connections: number;
+  hole_punch_retries: number;
+  hole_punch_delay_ms: number;
+  stun_server: string;
+}
+
+export interface P2PConfig {
+  enabled: boolean;
+  hole_punch_retries: number;
+  hole_punch_delay_ms: number;
+  stun_server: string;
+  p2p_port: number;
+}
+
+export interface P2PPublicAddr {
+  public_addr: string;
+  stun_server: string;
 }
 
 export function p2pGetStatus(): Promise<P2PStatus> {
@@ -632,5 +648,17 @@ export function p2pStart(): Promise<void> {
 
 export function p2pStop(): Promise<void> {
   return invoke<void>(cmd("p2p_stop"));
+}
+
+export function p2pGetConfig(): Promise<P2PConfig> {
+  return invoke<P2PConfig>(cmd("p2p_get_config"));
+}
+
+export function p2pSetConfig(config: P2PConfig): Promise<void> {
+  return invoke<void>(cmd("p2p_set_config"), { config });
+}
+
+export function p2pDiscoverPublicAddr(): Promise<P2PPublicAddr> {
+  return invoke<P2PPublicAddr>(cmd("p2p_discover_public_addr"));
 }
 

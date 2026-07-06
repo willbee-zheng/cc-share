@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Share2, Wallet, Settings, Server, ArrowDownToLine, ScrollText, Radio, LogOut, User, LogIn } from "lucide-react";
 import { SharePanel } from "./share/SharePanel";
@@ -12,20 +12,35 @@ import { useAuthState } from "./auth/AuthPanel";
 import { AuthDialog } from "./auth/AuthDialog";
 import { authLogout, getClientConfig, checkServerHealth, type AuthState, type ClientConfig, type ServerHealthResult } from "@/lib/api";
 import { subscribeAuthStateChanged } from "@/lib/events";
+import { RoleProvider, useViewRole, type ViewRole } from "@/lib/RoleContext";
+import { RoleSwitcher } from "@/components/RoleSwitcher";
 import { cn } from "@/components/ui/cn";
 import { Button } from "@/components/ui/button";
 
 type Tab = "share" | "consume" | "wallet" | "providers" | "p2p" | "logs" | "settings";
 
-const TABS: { id: Tab; icon: typeof Share2; titleKey: string }[] = [
-  { id: "share", icon: Share2, titleKey: "tabs.share" },
-  { id: "consume", icon: ArrowDownToLine, titleKey: "tabs.consume" },
-  { id: "wallet", icon: Wallet, titleKey: "tabs.wallet" },
-  { id: "providers", icon: Server, titleKey: "tabs.providers" },
-  { id: "p2p", icon: Radio, titleKey: "tabs.p2p" },
-  { id: "logs", icon: ScrollText, titleKey: "tabs.logs" },
-  { id: "settings", icon: Settings, titleKey: "tabs.settings" },
+interface TabDef {
+  id: Tab;
+  icon: typeof Share2;
+  titleKey: string;
+  roles: ViewRole[];
+}
+
+const TABS: TabDef[] = [
+  { id: "share", icon: Share2, titleKey: "tabs.share", roles: ["supplier", "both"] },
+  { id: "consume", icon: ArrowDownToLine, titleKey: "tabs.consume", roles: ["consumer", "both"] },
+  { id: "wallet", icon: Wallet, titleKey: "tabs.wallet", roles: ["supplier", "consumer", "both"] },
+  { id: "providers", icon: Server, titleKey: "tabs.providers", roles: ["supplier", "both"] },
+  { id: "p2p", icon: Radio, titleKey: "tabs.p2p", roles: ["supplier", "consumer", "both"] },
+  { id: "logs", icon: ScrollText, titleKey: "tabs.logs", roles: ["supplier", "consumer", "both"] },
+  { id: "settings", icon: Settings, titleKey: "tabs.settings", roles: ["supplier", "consumer", "both"] },
 ];
+
+const DEFAULT_TAB: Record<ViewRole, Tab> = {
+  supplier: "share",
+  consumer: "consume",
+  both: "share",
+};
 
 function ServerHealthIndicator() {
   const { t } = useTranslation("share");
@@ -120,10 +135,27 @@ function AccountBadge({ authState, serverHost, onLogout }: {
 }
 
 export default function App() {
+  return (
+    <RoleProvider>
+      <AppInner />
+    </RoleProvider>
+  );
+}
+
+function AppInner() {
   const { t } = useTranslation();
+  const { viewRole } = useViewRole();
+  const visibleTabs = useMemo(() => TABS.filter((tab) => tab.roles.includes(viewRole)), [viewRole]);
   const [tab, setTab] = useState<Tab>("share");
   const { authState, setAuthState, loading } = useAuthState("");
   const [serverHost, setServerHost] = useState("");
+
+  // When viewRole changes, if the current tab is no longer visible, switch to the default
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.id === tab)) {
+      setTab(DEFAULT_TAB[viewRole]);
+    }
+  }, [viewRole, visibleTabs, tab]);
 
   // Load server host from config
   useEffect(() => {
@@ -170,10 +202,10 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <header className="flex h-12 shrink-0 items-center gap-1 border-b border-black/10 dark:border-white/10 px-3">
-        <span className="mr-auto text-sm font-semibold">SharePlan</span>
-        <div className="absolute left-1/2 -translate-x-1/2">
-          <ServerHealthIndicator />
-        </div>
+        <span className="mr-2 text-sm font-semibold">SharePlan</span>
+        <RoleSwitcher />
+        <div className="flex-1" />
+        <ServerHealthIndicator />
         {authState ? (
           <AccountBadge authState={authState} serverHost={serverHost} onLogout={handleLogout} />
         ) : (
@@ -187,12 +219,15 @@ export default function App() {
             {t("auth:dialog.title")}
           </Button>
         )}
-        {TABS.map(({ id, icon: Icon, titleKey }) => (
+      </header>
+
+      <nav className="flex h-9 shrink-0 items-center gap-1 border-b border-black/5 dark:border-white/5 px-3 overflow-x-auto">
+        {visibleTabs.map(({ id, icon: Icon, titleKey }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors",
+              "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors whitespace-nowrap",
               tab === id
                 ? "bg-black/10 dark:bg-white/15 text-foreground"
                 : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10",
@@ -203,7 +238,7 @@ export default function App() {
             {t(titleKey)}
           </button>
         ))}
-      </header>
+      </nav>
 
       <main className="flex-1 overflow-auto p-4">
         {tab === "share" && <SharePanel onSignInNeeded={!authState ? () => setShowAuthDialog(true) : undefined} />}

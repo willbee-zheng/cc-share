@@ -153,6 +153,9 @@ pub fn run() {
             commands::p2p::p2p_get_status,
             commands::p2p::p2p_start,
             commands::p2p::p2p_stop,
+            commands::p2p::p2p_get_config,
+            commands::p2p::p2p_set_config,
+            commands::p2p::p2p_discover_public_addr,
             commands::system_log::get_system_logs,
             commands::system_log::clear_system_logs,
             commands::system_log::get_system_log_stats,
@@ -174,8 +177,6 @@ pub fn run() {
             let diagnostics = Diagnostics::new();
             let executor: SharedExecutor =
                 ProxyExecutor::new(proxy_client) as SharedExecutor;
-            let daemon = Daemon::new(db.clone(), executor, "default".into(), registry.clone());
-            let db_for_providers = db.clone();
 
             // Initialize P2P key manager (generate or load X25519 key pair).
             let p2p_key_manager = Arc::new(P2PKeyManager::generate());
@@ -185,6 +186,9 @@ pub fn run() {
             let mut p2p_conn_manager = P2PConnectionManager::new(p2p_key_manager.clone(), DEFAULT_P2P_PORT);
             p2p_conn_manager.set_app_handle(app.handle().clone());
             let p2p_conn_manager = Arc::new(p2p_conn_manager);
+
+            let daemon = Daemon::new(db.clone(), executor, "default".into(), registry.clone(), p2p_key_manager.clone(), p2p_conn_manager.clone());
+            let db_for_providers = db.clone();
 
             // 启动 system_log batch writer：从 log_rx 取出待写日志批量入库，
             // 每次 flush 后通过 LOG_APPENDED 事件通知前端实时刷新。
@@ -218,6 +222,8 @@ pub fn run() {
                 String::new(),
                 String::new(),
                 db.clone(),
+                p2p_conn_manager.clone(),
+                p2p_key_manager.clone(),
             );
 
             app.manage(ShareState {

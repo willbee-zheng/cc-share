@@ -8,11 +8,14 @@ pub mod connection;
 pub mod consumer;
 pub mod crypto;
 pub mod events;
+pub mod hole_punch;
 pub mod key;
 pub mod pool;
 pub mod protocol;
 pub mod report;
 pub mod session;
+pub mod stun_client;
+pub mod supplier;
 
 use crate::share::protocol::{P2PAnswer, P2POffer};
 

@@ -210,6 +210,15 @@ pub async fn share_connect<R: Runtime>(
         })?;
 
     log::info!("✓ share_connect: daemon started successfully for node_id={}", node_id);
+
+    // Auto-start P2P endpoint alongside the share daemon.
+    if !state.p2p_conn_manager.is_running().await {
+        match state.p2p_conn_manager.start().await {
+            Ok(()) => log::info!("share_connect: P2P endpoint auto-started"),
+            Err(e) => log::warn!("share_connect: P2P endpoint auto-start failed (non-fatal): {e}"),
+        }
+    }
+
     Ok(())
 }
 
@@ -227,6 +236,13 @@ pub async fn share_disconnect<R: Runtime>(
     let _ = app.emit(events::CONNECTION_STATE, ConnectionState::Disconnected);
     let mut daemon = state.daemon.lock().await;
     daemon.stop().await;
+
+    // Auto-stop P2P endpoint alongside the share daemon.
+    if state.p2p_conn_manager.is_running().await {
+        state.p2p_conn_manager.shutdown().await;
+        log::info!("share_disconnect: P2P endpoint auto-stopped");
+    }
+
     log::info!("✓ share_disconnect: daemon stopped successfully");
     Ok(())
 }

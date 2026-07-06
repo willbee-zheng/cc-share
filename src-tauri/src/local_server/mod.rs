@@ -2,9 +2,8 @@
 //!
 //! cc-share listens on `127.0.0.1:8081` (configurable). Users point any
 //! OpenAI-compatible client (including cc-switch itself, by adding a custom
-//! provider) at `http://127.0.0.1:8081/v1`. The server forwards requests to
-//! the SharePlan cloud-server `/api/v1/dispatch` endpoint, signing with the
-//! user's JWT + HMAC.
+//! provider) at `http://127.0.0.1:8081/v1`. The server first tries P2P
+//! direct connection, then falls back to cloud relay via `/api/v1/dispatch`.
 //!
 //! Supported endpoints:
 //! - `GET  /v1/models`            — static model catalog
@@ -25,8 +24,10 @@ use axum::{routing::get, routing::post, Router};
 use tokio::sync::RwLock;
 
 use crate::database::ShareDb;
+use crate::p2p::connection::P2PConnectionManager;
+use crate::p2p::key::P2PKeyManager;
 
-/// Local server shared state: cloud base URL + auth + http client.
+/// Local server shared state: cloud base URL + auth + http client + P2P.
 /// `cloud_base_url` / `auth_token` are read from the live ClientConfig so
 /// users editing config in the UI take effect without restarting the server.
 /// When `auth_token` is empty, the handler falls back to the logged-in user's
@@ -38,16 +39,29 @@ pub struct LocalServerState {
     pub http: reqwest::Client,
     /// Database handle for reading AuthState when auth_token is empty.
     pub db: Arc<ShareDb>,
+    /// P2P connection manager for direct consumer→supplier connections.
+    pub p2p_conn_manager: Arc<P2PConnectionManager>,
+    /// P2P key manager for E2E encryption key derivation.
+    pub p2p_key_manager: Arc<P2PKeyManager>,
 }
 
 impl LocalServerState {
-    pub fn new(cloud_base_url: String, auth_token: String, hmac_secret: String, db: Arc<ShareDb>) -> Arc<Self> {
+    pub fn new(
+        cloud_base_url: String,
+        auth_token: String,
+        hmac_secret: String,
+        db: Arc<ShareDb>,
+        p2p_conn_manager: Arc<P2PConnectionManager>,
+        p2p_key_manager: Arc<P2PKeyManager>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             cloud_base_url: RwLock::new(cloud_base_url),
             auth_token: RwLock::new(auth_token),
             hmac_secret: RwLock::new(hmac_secret),
             http: crate::http_client::shareplan_client(),
             db,
+            p2p_conn_manager,
+            p2p_key_manager,
         })
     }
 }

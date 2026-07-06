@@ -1,5 +1,14 @@
 {
   "title": "共享",
+  "roleSwitcher": {
+    "supplier": "供应者",
+    "consumer": "消费者",
+    "both": "双模式",
+    "blockedTitle": "无法切换身份",
+    "blockedBySharing": "您正在共享中，请先停止共享后再切换身份。",
+    "blockedByProxy": "本地代理正在运行，请先停止代理后再切换身份。",
+    "blockedDismiss": "我知道了"
+  },
   "tabs": {
     "share": "共享",
     "consume": "消费",
@@ -250,6 +259,11 @@
     "error": "错误",
     "noSessions": "暂无会话记录",
     "time": "时间",
-    "state": "状态"
+    "state": "状态",
+    "configTitle": "P2P 配置",
+    "holePunchRetries": "打洞重试次数",
+    "stunServer": "STUN 服务器",
+    "discoverPublicAddr": "发现公网地址",
+    "discovering": "检测中…"
   }
 }

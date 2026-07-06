@@ -1,5 +1,14 @@
 {
   "title": "Share",
+  "roleSwitcher": {
+    "supplier": "Supplier",
+    "consumer": "Consumer",
+    "both": "Both",
+    "blockedTitle": "Cannot Switch Role",
+    "blockedBySharing": "You are currently sharing. Please stop sharing before switching roles.",
+    "blockedByProxy": "The local proxy is running. Please stop the proxy before switching roles.",
+    "blockedDismiss": "Got it"
+  },
   "tabs": {
     "share": "Share",
     "consume": "Consume",
@@ -249,6 +258,11 @@
     "error": "Error",
     "noSessions": "No sessions yet",
     "time": "Time",
-    "state": "State"
+    "state": "State",
+    "configTitle": "P2P Configuration",
+    "holePunchRetries": "Hole Punch Retries",
+    "stunServer": "STUN Server",
+    "discoverPublicAddr": "Discover Public Address",
+    "discovering": "Discovering…"
   }
 }

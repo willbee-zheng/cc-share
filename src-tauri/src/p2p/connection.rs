@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use quinn::{ClientConfig, Endpoint, ServerConfig, VarInt};
+use socket2::{Domain, Protocol, Socket, Type};
 use tokio::sync::RwLock;
 use tauri::AppHandle;
 
@@ -61,6 +62,9 @@ impl P2PConnectionManager {
     }
 
     /// Start the QUIC endpoint. Call this once at startup.
+    ///
+    /// Creates a UDP socket with SO_REUSEADDR/SO_REUSEPORT so that the
+    /// STUN client and hole-punch packets can bind the same port.
     pub async fn start(&self) -> Result<(), ShareError> {
         let (server_config, client_config) = generate_configs()?;
 
@@ -68,8 +72,33 @@ impl P2PConnectionManager {
             .parse()
             .map_err(|e| ShareError::Connection(format!("invalid bind address: {e}")))?;
 
-        let mut endpoint = Endpoint::server(server_config, bind_addr)
-            .map_err(|e| ShareError::Connection(format!("QUIC server bind failed: {e}")))?;
+        // Create a socket with SO_REUSEADDR (and SO_REUSEPORT on Unix) so
+        // the STUN client and hole-punch UDP packets can share the same port.
+        let socket = Socket::new(Domain::for_address(bind_addr), Type::DGRAM, Some(Protocol::UDP))
+            .map_err(|e| ShareError::Connection(format!("socket create: {e}")))?;
+
+        socket.set_reuse_address(true)
+            .map_err(|e| ShareError::Connection(format!("set_reuse_address: {e}")))?;
+
+        #[cfg(unix)]
+        socket.set_reuse_port(true)
+            .map_err(|e| ShareError::Connection(format!("set_reuse_port: {e}")))?;
+
+        socket.bind(&bind_addr.into())
+            .map_err(|e| ShareError::Connection(format!("socket bind {}: {e}", bind_addr)))?;
+
+        socket.set_nonblocking(true)
+            .map_err(|e| ShareError::Connection(format!("set_nonblocking: {e}")))?;
+
+        let std_socket: std::net::UdpSocket = socket.into();
+
+        let mut endpoint = Endpoint::new(
+            quinn::EndpointConfig::default(),
+            Some(server_config),
+            std_socket,
+            Arc::new(quinn::TokioRuntime),
+        )
+        .map_err(|e| ShareError::Connection(format!("QUIC endpoint create: {e}")))?;
 
         endpoint.set_default_client_config(client_config);
 

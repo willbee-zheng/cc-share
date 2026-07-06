@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Radio, Copy, Check, Wifi, WifiOff, Users, ScrollText } from "lucide-react";
+import { Radio, Copy, Check, Wifi, WifiOff, Users, ScrollText, Settings, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   p2pGetStatus,
   p2pGetPublicKey,
+  p2pGetConfig,
+  p2pSetConfig,
+  p2pDiscoverPublicAddr,
   type P2PStatus,
+  type P2PConfig,
 } from "@/lib/api";
 import {
   subscribeP2PSessionState,
@@ -43,6 +47,9 @@ export function P2PPanel() {
   const [copied, setCopied] = useState(false);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [activeConns, setActiveConns] = useState(0);
+  const [p2pConfig, setP2pConfig] = useState<P2PConfig | null>(null);
+  const [publicAddr, setPublicAddr] = useState<string | null>(null);
+  const [discovering, setDiscovering] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -58,6 +65,7 @@ export function P2PPanel() {
   useEffect(() => {
     void refreshStatus();
     p2pGetPublicKey().then(setPublicKey).catch(() => {});
+    p2pGetConfig().then(setP2pConfig).catch(() => {});
   }, [refreshStatus]);
 
   // Real-time subscriptions
@@ -194,6 +202,82 @@ export function P2PPanel() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* P2P Configuration */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Settings className="h-4 w-4" />
+            {t("p2p.configTitle")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {/* Hole Punch Retries */}
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">{t("p2p.holePunchRetries")}</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              className="w-20 rounded border bg-black/5 px-2 py-1 text-xs dark:bg-white/10"
+              value={p2pConfig?.hole_punch_retries ?? 10}
+              onChange={async (e) => {
+                const val = Math.max(1, Math.min(50, parseInt(e.target.value) || 10));
+                if (p2pConfig) {
+                  const newConfig = { ...p2pConfig, hole_punch_retries: val };
+                  await p2pSetConfig(newConfig);
+                  setP2pConfig(newConfig);
+                }
+              }}
+            />
+          </div>
+
+          {/* STUN Server */}
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">{t("p2p.stunServer")}</span>
+            <input
+              type="text"
+              className="w-48 rounded border bg-black/5 px-2 py-1 text-xs dark:bg-white/10"
+              placeholder="auto"
+              value={p2pConfig?.stun_server ?? ""}
+              onChange={async (e) => {
+                if (p2pConfig) {
+                  const newConfig = { ...p2pConfig, stun_server: e.target.value };
+                  await p2pSetConfig(newConfig);
+                  setP2pConfig(newConfig);
+                }
+              }}
+            />
+          </div>
+
+          {/* Discover Public Address */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={discovering}
+              onClick={async () => {
+                setDiscovering(true);
+                try {
+                  const result = await p2pDiscoverPublicAddr();
+                  setPublicAddr(result.public_addr);
+                } catch {
+                  setPublicAddr(null);
+                } finally {
+                  setDiscovering(false);
+                }
+              }}
+            >
+              <Globe className="mr-1 h-3 w-3" />
+              {discovering ? t("p2p.discovering") : t("p2p.discoverPublicAddr")}
+            </Button>
+            {publicAddr && (
+              <code className="text-xs text-emerald-600 dark:text-emerald-400">{publicAddr}</code>
+            )}
+          </div>
         </CardContent>
       </Card>
 

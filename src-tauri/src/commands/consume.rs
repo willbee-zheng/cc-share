@@ -1,13 +1,12 @@
 //! 消费者代理相关 Tauri 命令
 //!
-//! 把请求转发到云端共享池（cloud-server `/api/v1/dispatch`）。
-//!
-//! 这是 cc-switch ProviderRouter 集成的接缝：在 cc-switch 端，将虚拟
-//! Provider `cc-share-pool` 的请求路由到这里，而不是修改 cc-share 内部。
-//! 集成只需调用 `invoke("plugin:shareplan|share_consume", { request })` 即可。
+//! 把请求转发到云端共享池，优先尝试 P2P 直连，失败后回退到云端中继。
+//! P2P 直连通过 `/api/v1/p2p/dispatch` 端点进行信令配对，
+//! 成功后直接与供应方建立 QUIC 连接，绕过云端中继。
 
+use crate::p2p::consumer::P2PConsumer;
 use crate::share::client::ClientConfig;
-use crate::share::consumer::{ConsumeRequest, ConsumeResponse, Consumer, ConsumerConfig};
+use crate::share::consumer::{ConsumeRequest, ConsumeResponse, ConsumerConfig};
 use crate::share::protocol::TokenUsage;
 use crate::ShareState;
 
@@ -48,7 +47,7 @@ impl From<ConsumeResponse> for ConsumeResult {
     }
 }
 
-/// 把本地请求路由到云端共享池
+/// 把本地请求路由到云端共享池（P2P 直连优先，云端中继回退）
 #[tauri::command]
 pub async fn share_consume(
     state: tauri::State<'_, ShareState>,
@@ -69,16 +68,6 @@ pub async fn share_consume(
     // 把 server_host (域名或域名:端口) → https://host 或 http://host:port
     let base_url = host_to_http_base(&cfg.server_host, cfg.use_https);
 
-    let consumer = Consumer::new(
-        state.db.clone(),
-        ConsumerConfig {
-            base_url,
-            auth_token: cfg.auth_token,
-            hmac_secret: cfg.hmac_secret,
-            request_timeout_secs: 60,
-        },
-    );
-
     let request = ConsumeRequest {
         model: args.model,
         messages: args.messages,
@@ -88,7 +77,23 @@ pub async fn share_consume(
         max_output_tokens: args.max_output_tokens,
     };
 
-    let response = consumer.consume(request).await;
+    // Try P2P direct connection first, fall back to cloud relay
+    let relay_config = ConsumerConfig {
+        base_url: base_url.clone(),
+        auth_token: cfg.auth_token.clone(),
+        hmac_secret: cfg.hmac_secret.clone(),
+        request_timeout_secs: 60,
+    };
+
+    let mut p2p_consumer = P2PConsumer::new(
+        state.db.clone(),
+        relay_config,
+        state.p2p_conn_manager.clone(),
+        state.p2p_key_manager.clone(),
+    );
+    p2p_consumer.update_config(&base_url, &cfg.auth_token, &cfg.hmac_secret);
+
+    let response = p2p_consumer.consume(request).await;
     log::info!("share_consume: result success={}, error={:?}", response.success, response.error);
     Ok(response.into())
 }

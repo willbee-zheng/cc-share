@@ -17,6 +17,45 @@ use rusqlite::params;
 
 const KEY: &str = "client_config_v1";
 const ROLE_KEY: &str = "role_v1";
+const P2P_CONFIG_KEY: &str = "p2p_config_v1";
+
+/// P2P configuration persisted across restarts.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct P2PConfig {
+    /// Whether P2P direct connections are enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Number of hole punch retries before falling back to cloud relay.
+    #[serde(default = "default_hole_punch_retries")]
+    pub hole_punch_retries: u32,
+    /// Base delay between hole punch retries (ms), increases with each round.
+    #[serde(default = "default_hole_punch_delay_ms")]
+    pub hole_punch_delay_ms: u32,
+    /// STUN server address (host:port). Empty = derive from cloud server host + port 7890.
+    #[serde(default)]
+    pub stun_server: String,
+    /// Local P2P QUIC port.
+    #[serde(default = "default_p2p_port")]
+    pub p2p_port: u16,
+}
+
+fn default_true() -> bool { true }
+fn default_hole_punch_retries() -> u32 { 10 }
+fn default_hole_punch_delay_ms() -> u32 { 200 }
+fn default_p2p_port() -> u16 { 15731 }
+
+impl Default for P2PConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            hole_punch_retries: default_hole_punch_retries(),
+            hole_punch_delay_ms: default_hole_punch_delay_ms(),
+            stun_server: String::new(),
+            p2p_port: default_p2p_port(),
+        }
+    }
+}
 
 /// 角色枚举：供应者、消费者、空闲
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -147,6 +186,45 @@ impl ShareDb {
             "INSERT INTO client_config (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![ROLE_KEY, raw],
+        )?;
+        Ok(())
+    }
+
+    /// Load P2P configuration; returns default if not stored.
+    pub fn load_p2p_config(&self) -> Result<P2PConfig, ShareError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| ShareError::Database(e.to_string()))?;
+        let result = conn.query_row(
+            "SELECT value FROM client_config WHERE key = ?1",
+            params![P2P_CONFIG_KEY],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(raw) => serde_json::from_str::<P2PConfig>(&raw)
+                .map_err(|e| {
+                    log::warn!("p2p_config 反序列化失败，使用默认值: {e}");
+                    Ok::<P2PConfig, ShareError>(P2PConfig::default())
+                })
+                .or_else(|_| Ok(P2PConfig::default())),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(P2PConfig::default()),
+            Err(e) => Err(ShareError::Database(e.to_string())),
+        }
+    }
+
+    /// Save P2P configuration.
+    pub fn save_p2p_config(&self, cfg: &P2PConfig) -> Result<(), ShareError> {
+        let raw = serde_json::to_string(cfg)
+            .map_err(|e| ShareError::Database(format!("encode p2p_config: {e}")))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| ShareError::Database(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO client_config (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![P2P_CONFIG_KEY, raw],
         )?;
         Ok(())
     }

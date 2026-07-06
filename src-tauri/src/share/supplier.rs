@@ -154,7 +154,8 @@ impl Supplier {
     }
 
     fn check_content(&self, payload: &TaskPayload) -> Result<(), ShareError> {
-        let messages_text = payload.messages.to_string();
+        let messages_text = serde_json::to_string(&payload.messages)
+            .unwrap_or_else(|_| payload.messages.to_string());
         self.content_filter.check(&messages_text)
     }
 

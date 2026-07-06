@@ -50,6 +50,8 @@ pub struct P2PConsumer {
     conn_manager: Arc<P2PConnectionManager>,
     /// P2P key manager for E2E encryption.
     key_manager: Arc<P2PKeyManager>,
+    /// Database handle for P2P config.
+    db: Arc<ShareDb>,
     /// HTTP client for P2P dispatch requests.
     http: reqwest::Client,
     /// Cloud base URL.
@@ -80,12 +82,13 @@ impl P2PConsumer {
             .build()
             .expect("reqwest client build");
 
-        let relay = Consumer::new(db, relay_config);
+        let relay = Consumer::new(db.clone(), relay_config);
 
         Self {
             relay,
             conn_manager,
             key_manager,
+            db,
             http,
             base_url: String::new(), // Will be set from LocalServerState
             auth_token: String::new(),
@@ -154,17 +157,27 @@ impl P2PConsumer {
             self.conn_manager.clone(),
         )?;
 
-        // Step 3: Connect to the supplier via QUIC.
-        let conn = tokio::time::timeout(
-            self.p2p_timeout,
-            self.conn_manager.connect_to_peer(&candidates, &session_id),
+        // Step 3: Connect to the supplier via QUIC with hole punching.
+        let p2p_config = self.db.load_p2p_config().map_err(|e| {
+            ShareError::Connection(format!("load P2P config: {e}"))
+        })?;
+        let conn = crate::p2p::hole_punch::punch_and_connect(
+            &self.conn_manager,
+            &candidates,
+            &session_id,
+            p2p_config.hole_punch_retries,
+            p2p_config.hole_punch_delay_ms,
         )
         .await
-        .map_err(|_| ShareError::Connection("P2P connection timeout".into()))??;
+        .map_err(|e| ShareError::Connection(format!("P2P hole punch: {e}")))?;
 
         // Step 4: Encrypt and send the task request over QUIC.
-        let messages_encrypted = session.encrypt(&request.messages.to_string().into_bytes())?;
-        let params_encrypted = session.encrypt(&request.params.to_string().into_bytes())?;
+        let messages_json = serde_json::to_string(&request.messages)
+            .map_err(|e| ShareError::Connection(format!("serialize messages: {e}")))?;
+        let params_json = serde_json::to_string(&request.params)
+            .map_err(|e| ShareError::Connection(format!("serialize params: {e}")))?;
+        let messages_encrypted = session.encrypt(messages_json.as_bytes())?;
+        let params_encrypted = session.encrypt(params_json.as_bytes())?;
 
         let p2p_request = P2pTaskRequest {
             session_id: session_id.clone(),
@@ -265,12 +278,42 @@ impl P2PConsumer {
     ) -> Result<P2PDispatchResponse, ShareError> {
         let url = format!("{}/api/v1/p2p/dispatch", self.base_url.trim_end_matches('/'));
 
-        // Get local STUN candidates (for now, just use local addresses).
-        let local_candidates = self.conn_manager.local_addr().await.unwrap_or_default();
-        let candidate_strs: Vec<String> = local_candidates
-            .iter()
-            .map(|a| a.to_string())
-            .collect();
+        // Discover public address via STUN and combine with local addresses.
+        let mut candidate_strs: Vec<String> = Vec::new();
+
+        // 1. STUN-discovered public address (highest priority for NAT traversal).
+        let p2p_config = self.db.load_p2p_config().map_err(|e| {
+            ShareError::Connection(format!("load P2P config: {e}"))
+        })?;
+        let stun_server = if p2p_config.stun_server.is_empty() {
+            // Derive STUN server from cloud host + default STUN port.
+            format!("{}:7890", self.base_url.trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/'))
+        } else {
+            p2p_config.stun_server.clone()
+        };
+
+        match crate::p2p::stun_client::discover_public_addr(
+            &stun_server,
+            p2p_config.p2p_port,
+            Duration::from_secs(3),
+        ).await {
+            Ok(public_addr) => {
+                log::info!("P2P: STUN discovered public address: {}", public_addr);
+                candidate_strs.push(public_addr.to_string());
+            }
+            Err(e) => {
+                log::warn!("P2P: STUN discovery failed (non-fatal): {e}");
+            }
+        }
+
+        // 2. Local addresses (fallback).
+        let local_addrs = self.conn_manager.local_addr().await.unwrap_or_default();
+        for addr in &local_addrs {
+            let s = addr.to_string();
+            if !candidate_strs.contains(&s) {
+                candidate_strs.push(s);
+            }
+        }
 
         let body = serde_json::json!({
             "model": request.model,
