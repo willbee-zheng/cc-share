@@ -60,18 +60,6 @@ export function shareGetStatus(): Promise<string> {
   return invoke<string>(cmd("share_get_status"));
 }
 
-// ---------- Server health check ----------
-
-export interface ServerHealthResult {
-  healthy: boolean;
-  latency_ms: number;
-  error: string | null;
-}
-
-export function checkServerHealth(): Promise<ServerHealthResult> {
-  return invoke<ServerHealthResult>(cmd("check_server_health"));
-}
-
 // ---------- Share settings (per-provider) ----------
 
 export interface ShareSettings {

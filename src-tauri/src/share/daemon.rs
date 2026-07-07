@@ -43,6 +43,10 @@ pub enum DaemonEvent {
         status: TaskStatus,
         latency_ms: u64,
     },
+    /// 心跳往返延迟（毫秒），用于推送服务器健康状态
+    HealthUpdate {
+        latency_ms: u64,
+    },
 }
 
 /// 守护线程管理器
@@ -300,6 +304,12 @@ impl Daemon {
                 });
             });
             client.set_error_callback(error_callback);
+
+            let event_cb_for_health = event_cb.clone();
+            let health_callback: Box<dyn Fn(u64) + Send + Sync> = Box::new(move |latency| {
+                event_cb_for_health(DaemonEvent::HealthUpdate { latency_ms: latency });
+            });
+            client.set_health_callback(health_callback);
 
             if let Err(e) = client.run(task_tx, state_callback).await {
                 log::warn!("CC-Share daemon: client 退出 - {e}");

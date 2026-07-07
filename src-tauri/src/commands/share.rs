@@ -203,6 +203,14 @@ pub async fn share_connect<R: Runtime>(
                 });
                 let _ = app_for_events.emit(events::TASK_FINISHED, payload);
             }
+            DaemonEvent::HealthUpdate { latency_ms } => {
+                log::debug!("share_connect: health update latency={}ms", latency_ms);
+                let payload = serde_json::json!({
+                    "healthy": true,
+                    "latency_ms": latency_ms,
+                });
+                let _ = app_for_events.emit(events::HEALTH_UPDATE, payload);
+            }
         })
         .map_err(|e| {
             log::error!("share_connect: daemon start failed - {}", e);
@@ -255,117 +263,7 @@ pub async fn share_get_status(state: tauri::State<'_, ShareState>) -> Result<Str
     Ok(status)
 }
 
-/// 检查云端服务器健康状态
-///
-/// 向 server_url 的 health 端点发送 HTTP GET 请求，
-/// 返回 { healthy: bool, latency_ms: u64, error: Option<String> }。
-#[tauri::command]
-pub async fn check_server_health(
-    state: tauri::State<'_, ShareState>,
-) -> Result<serde_json::Value, String> {
-    let config = state.client_config.read().await.clone();
-    if config.server_host.is_empty() {
-        return Ok(serde_json::json!({
-            "healthy": false,
-            "latency_ms": 0,
-            "error": "server_host not configured"
-        }));
-    }
-
-    // Derive health check URL from the server host.
-    // e.g. api.cc-share.com -> https://api.cc-share.com/health
-    //      192.168.1.60:8080 -> http://192.168.1.60:8080/health
-    let health_url = derive_health_url(&config.server_host, config.use_https);
-
-    let start = std::time::Instant::now();
-    let client = crate::http_client::shareplan_client_builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    match client.get(&health_url).send().await {
-        Ok(resp) => {
-            let latency_ms = start.elapsed().as_millis() as u64;
-            let status = resp.status();
-            if status.is_success() {
-                Ok(serde_json::json!({
-                    "healthy": true,
-                    "latency_ms": latency_ms,
-                    "error": null
-                }))
-            } else {
-                Ok(serde_json::json!({
-                    "healthy": false,
-                    "latency_ms": latency_ms,
-                    "error": format!("HTTP {}", status.as_u16())
-                }))
-            }
-        }
-        Err(e) => {
-            let latency_ms = start.elapsed().as_millis() as u64;
-            Ok(serde_json::json!({
-                "healthy": false,
-                "latency_ms": latency_ms,
-                "error": e.to_string()
-            }))
-        }
-    }
-}
-
-/// 根据用户填写的服务器地址推导 health 检查 URL。
-///
-/// Respects explicit `http://` or `https://` prefixes.
-/// When no prefix, `use_https` controls the scheme.
-fn derive_health_url(host: &str, use_https: bool) -> String {
-    let base = crate::url_utils::build_http_base_with_tls(host, use_https);
-    if base.is_empty() {
-        return String::new();
-    }
-    format!("{base}/health")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_derive_health_url_pure_domain_no_tls() {
-        let result = derive_health_url("api.cc-share.com", false);
-        assert_eq!(result, "http://api.cc-share.com/health");
-    }
-
-    #[test]
-    fn test_derive_health_url_pure_domain_with_tls() {
-        let result = derive_health_url("api.cc-share.com", true);
-        assert_eq!(result, "https://api.cc-share.com/health");
-    }
-
-    #[test]
-    fn test_derive_health_url_with_port() {
-        let result = derive_health_url("192.168.1.60:8080", false);
-        assert_eq!(result, "http://192.168.1.60:8080/health");
-    }
-
-    #[test]
-    fn test_derive_health_url_explicit_http() {
-        let result = derive_health_url("http://test.local", false);
-        assert_eq!(result, "http://test.local/health");
-    }
-
-    #[test]
-    fn test_derive_health_url_explicit_https() {
-        let result = derive_health_url("https://api.cc-share.com", false);
-        assert_eq!(result, "https://api.cc-share.com/health");
-    }
-
-    #[test]
-    fn test_derive_health_url_strips_protocol_prefix() {
-        let result = derive_health_url("wss://api.cc-share.com/api/v1/agent/connect", false);
-        assert_eq!(result, "https://api.cc-share.com/health");
-    }
-
-    #[test]
-    fn test_derive_health_url_empty() {
-        assert_eq!(derive_health_url("", false), "");
-    }
 }

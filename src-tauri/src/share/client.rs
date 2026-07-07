@@ -105,8 +105,8 @@ pub enum OutgoingMessage {
 pub enum IncomingMessage {
     /// 云端下发的任务（扁平字段 — 与 cloud-server 的 EncodeTask 对应）
     Task(TaskPayload),
-    /// 云端心跳回执
-    Pong,
+    /// 云端心跳回执，携带服务端处理延迟（毫秒）
+    Pong { latency_ms: u64 },
     /// P2P 信令：云端请求本节点接受直连
     P2pOffer(crate::share::protocol::P2POffer),
 }
@@ -118,6 +118,8 @@ pub struct P2PClient {
     outgoing_rx: Option<mpsc::UnboundedReceiver<OutgoingMessage>>,
     running: Arc<AtomicBool>,
     error_callback: Option<Box<dyn Fn(ConnectionErrorInfo) + Send + Sync>>,
+    /// Callback invoked with heartbeat round-trip latency (ms) on each pong.
+    health_callback: Option<Arc<dyn Fn(u64) + Send + Sync>>,
     /// Channel for P2P offer messages received from the cloud.
     p2p_offer_tx: Option<mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
 }
@@ -134,6 +136,7 @@ impl P2PClient {
             outgoing_rx: Some(rx),
             running: Arc::new(AtomicBool::new(false)),
             error_callback: None,
+            health_callback: None,
             p2p_offer_tx: None,
         }
     }
@@ -151,6 +154,11 @@ impl P2PClient {
     /// 设置连接错误回调，用于将错误详情推送到前端
     pub fn set_error_callback(&mut self, cb: Box<dyn Fn(ConnectionErrorInfo) + Send + Sync>) {
         self.error_callback = Some(cb);
+    }
+
+    /// 设置健康回调，每次收到心跳 pong 时调用，参数为往返延迟（毫秒）。
+    pub fn set_health_callback(&mut self, cb: Box<dyn Fn(u64) + Send + Sync>) {
+        self.health_callback = Some(Arc::from(cb));
     }
 
     /// 启动客户端连接循环
@@ -194,6 +202,7 @@ impl P2PClient {
                     state_callback(ConnectionState::Connected);
                     reconnect_delay_secs = 1;
 
+                    let health_cb_clone = self.health_callback.clone();
                     let session_result = run_session(
                         ws_stream,
                         &mut outgoing_rx,
@@ -201,6 +210,7 @@ impl P2PClient {
                         self.p2p_offer_tx.as_ref(),
                         self.config.heartbeat_interval_secs,
                         self.running.clone(),
+                        health_cb_clone,
                     )
                     .await;
                     if let Err(e) = session_result {
@@ -282,6 +292,8 @@ impl P2PClient {
 }
 
 /// 一次完整会话：直到出错或 running == false 为止
+///
+/// `health_cb` 接收心跳往返延迟（毫秒），用于向前端推送服务器健康状态。
 async fn run_session(
     ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
     outgoing_rx: &mut mpsc::UnboundedReceiver<OutgoingMessage>,
@@ -289,11 +301,14 @@ async fn run_session(
     p2p_offer_tx: Option<&mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
     heartbeat_interval_secs: u64,
     running: Arc<AtomicBool>,
+    health_cb: Option<Arc<dyn Fn(u64) + Send + Sync>>,
 ) -> Result<(), ShareError> {
     let (mut sink, mut stream) = ws_stream.split();
     let mut heartbeat = tokio::time::interval(Duration::from_secs(heartbeat_interval_secs));
     // 第一次 tick 立即触发；跳过它免得连上就发心跳
     heartbeat.tick().await;
+    // 记录最近一次心跳发送时间，用于计算往返延迟
+    let mut last_heartbeat_sent: Option<std::time::Instant> = None;
 
     loop {
         if !running.load(Ordering::SeqCst) {
@@ -306,11 +321,11 @@ async fn run_session(
             frame = stream.next() => {
                 match frame {
                     Some(Ok(tungstenite::Message::Text(txt))) => {
-                        handle_incoming_text(&txt, task_tx, p2p_offer_tx);
+                        handle_incoming_text(&txt, task_tx, p2p_offer_tx, &last_heartbeat_sent, &health_cb);
                     }
                     Some(Ok(tungstenite::Message::Binary(b))) => {
                         if let Ok(txt) = std::str::from_utf8(&b) {
-                            handle_incoming_text(txt, task_tx, p2p_offer_tx);
+                            handle_incoming_text(txt, task_tx, p2p_offer_tx, &last_heartbeat_sent, &health_cb);
                         }
                     }
                     Some(Ok(tungstenite::Message::Ping(p))) => {
@@ -342,13 +357,20 @@ async fn run_session(
 
             // 心跳
             _ = heartbeat.tick() => {
+                last_heartbeat_sent = Some(std::time::Instant::now());
                 write_outgoing(&mut sink, &OutgoingMessage::Heartbeat).await?;
             }
         }
     }
 }
 
-fn handle_incoming_text(txt: &str, task_tx: &mpsc::UnboundedSender<TaskPayload>, p2p_offer_tx: Option<&mpsc::UnboundedSender<crate::share::protocol::P2POffer>>) {
+fn handle_incoming_text(
+    txt: &str,
+    task_tx: &mpsc::UnboundedSender<TaskPayload>,
+    p2p_offer_tx: Option<&mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
+    last_heartbeat_sent: &Option<std::time::Instant>,
+    health_cb: &Option<Arc<dyn Fn(u64) + Send + Sync>>,
+) {
     // 云端的 task 消息是扁平的 {type:"task", task_id, model, ...}
     // 我们用一个 helper 结构来识别 type 后再把剩余字段反序列化为 TaskPayload。
     let probe: serde_json::Value = match serde_json::from_str(txt) {
@@ -381,7 +403,22 @@ fn handle_incoming_text(txt: &str, task_tx: &mpsc::UnboundedSender<TaskPayload>,
             }
             Err(e) => log::warn!("CC-Share: 解析 p2p_offer 失败 - {e}"),
         },
-        "pong" => { /* keep-alive ack — 仅刷新底层超时（由读 future 自动完成） */ }
+        "pong" => {
+            // 计算心跳往返延迟
+            let server_latency = probe.get("latency_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+            let client_rtt = last_heartbeat_sent
+                .map(|sent| sent.elapsed().as_millis() as u64)
+                .unwrap_or(0);
+            // 总延迟 = 客户端 RTT + 服务端处理延迟
+            let total_latency = client_rtt.saturating_add(server_latency);
+            log::debug!(
+                "CC-Share: heartbeat pong (rtt={}ms, server={}ms, total={}ms)",
+                client_rtt, server_latency, total_latency
+            );
+            if let Some(cb) = health_cb.as_ref() {
+                cb(total_latency);
+            }
+        }
         other => log::warn!("CC-Share: 未知消息类型 {other}"),
     }
 }
@@ -602,7 +639,8 @@ mod tests {
     fn test_handle_incoming_task() {
         let raw = r#"{"type":"task","task_id":"t1","model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}],"stream":false,"params":null}"#;
         let (tx, mut rx) = mpsc::unbounded_channel();
-        handle_incoming_text(raw, &tx);
+        let no_cb: Option<Arc<dyn Fn(u64) + Send + Sync>> = None;
+        handle_incoming_text(raw, &tx, None, &None, &no_cb);
         let task = rx.try_recv().expect("应收到 task");
         assert_eq!(task.task_id, "t1");
         assert_eq!(task.model, "claude-sonnet-4-6");
@@ -611,14 +649,16 @@ mod tests {
     #[test]
     fn test_handle_incoming_pong_ignored() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        handle_incoming_text(r#"{"type":"pong"}"#, &tx);
+        let no_cb: Option<Arc<dyn Fn(u64) + Send + Sync>> = None;
+        handle_incoming_text(r#"{"type":"pong","latency_ms":5}"#, &tx, None, &None, &no_cb);
         assert!(rx.try_recv().is_err());
     }
 
     #[test]
     fn test_handle_incoming_unknown_type_ignored() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        handle_incoming_text(r#"{"type":"nope"}"#, &tx);
+        let no_cb: Option<Arc<dyn Fn(u64) + Send + Sync>> = None;
+        handle_incoming_text(r#"{"type":"nope"}"#, &tx, None, &None, &no_cb);
         assert!(rx.try_recv().is_err());
     }
 
@@ -641,6 +681,7 @@ mod tests {
             upstream_models: upstream,
             current_concurrency: 0,
             max_concurrency: 1,
+            p2p_public_key: None,
         });
         let s = serde_json::to_string(&m).unwrap();
         // 验证带 type 标签且字段被扁平展开（serde tag 模式）

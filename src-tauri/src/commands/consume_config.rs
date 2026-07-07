@@ -94,7 +94,7 @@ pub async fn set_role<R: tauri::Runtime>(
 /// 生成 cc-switch Provider 配置 JSON
 ///
 /// 根据指定的 app_type 生成可以直接导入 cc-switch 的 Provider 配置对象。
-/// 本地代理默认监听 `127.0.0.1:8081`。
+/// 本地代理默认监听 `127.0.0.1:18081`。
 #[tauri::command]
 pub async fn generate_consumer_config(
     state: tauri::State<'_, ShareState>,
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn test_generate_claude_config() {
         let config = generate_claude_config(
-            "http://127.0.0.1:8081/v1",
+            "http://127.0.0.1:18081/v1",
             "my-token",
             Some("claude-opus-4"),
         )
@@ -216,7 +216,7 @@ mod tests {
         assert_eq!(config["id"], "shareplan-consumer");
         assert_eq!(
             config["settingsConfig"]["env"]["ANTHROPIC_BASE_URL"],
-            "http://127.0.0.1:8081/v1"
+            "http://127.0.0.1:18081/v1"
         );
         assert_eq!(
             config["settingsConfig"]["env"]["ANTHROPIC_AUTH_TOKEN"],
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_generate_claude_config_default_model() {
-        let config = generate_claude_config("http://127.0.0.1:8081/v1", "tok", None).unwrap();
+        let config = generate_claude_config("http://127.0.0.1:18081/v1", "tok", None).unwrap();
         assert_eq!(
             config["settingsConfig"]["env"]["ANTHROPIC_MODEL"],
             "claude-sonnet-4"
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn test_generate_codex_config() {
         let config =
-            generate_codex_config("http://127.0.0.1:8081/v1", "my-token", Some("gpt-4o")).unwrap();
+            generate_codex_config("http://127.0.0.1:18081/v1", "my-token", Some("gpt-4o")).unwrap();
         let toml_cfg = config["settingsConfig"]["config"].as_str().unwrap();
         assert!(toml_cfg.contains("model = \"gpt-4o\""));
         assert!(toml_cfg.contains("wire_api = \"responses\""));
@@ -254,14 +254,14 @@ mod tests {
     #[test]
     fn test_generate_gemini_config() {
         let config = generate_gemini_config(
-            "http://127.0.0.1:8081",
+            "http://127.0.0.1:18081",
             "my-token",
             Some("gemini-2.5-flash"),
         )
         .unwrap();
         assert_eq!(
             config["settingsConfig"]["env"]["GOOGLE_GEMINI_BASE_URL"],
-            "http://127.0.0.1:8081"
+            "http://127.0.0.1:18081"
         );
         assert_eq!(
             config["settingsConfig"]["env"]["GEMINI_MODEL"],

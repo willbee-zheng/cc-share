@@ -10,8 +10,8 @@ import { P2PPanel } from "./p2p/P2PPanel";
 import { SystemLogPanel } from "./system_log/SystemLogPanel";
 import { useAuthState } from "./auth/AuthPanel";
 import { AuthDialog } from "./auth/AuthDialog";
-import { authLogout, getClientConfig, checkServerHealth, type AuthState, type ClientConfig, type ServerHealthResult } from "@/lib/api";
-import { subscribeAuthStateChanged } from "@/lib/events";
+import { authLogout, getClientConfig, type AuthState, type ClientConfig } from "@/lib/api";
+import { subscribeAuthStateChanged, subscribeConnectionState, subscribeHealthUpdate, type ConnectionState as WsConnectionState, type HealthUpdateEvent } from "@/lib/events";
 import { RoleProvider, useViewRole, type ViewRole } from "@/lib/RoleContext";
 import { RoleSwitcher } from "@/components/RoleSwitcher";
 import { cn } from "@/components/ui/cn";
@@ -42,54 +42,87 @@ const DEFAULT_TAB: Record<ViewRole, Tab> = {
   both: "share",
 };
 
+type HealthStatus = "unknown" | "connected" | "healthy" | "degraded" | "disconnected";
+
 function ServerHealthIndicator() {
   const { t } = useTranslation("share");
-  const [health, setHealth] = useState<ServerHealthResult | null>(null);
+  const [connectionState, setConnectionState] = useState<WsConnectionState>("disconnected");
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    let unlistenConn: (() => void) | null = null;
+    let unlistenHealth: (() => void) | null = null;
 
-    async function check() {
-      try {
-        const result = await checkServerHealth();
-        if (!cancelled) setHealth(result);
-      } catch {
-        if (!cancelled) {
-          setHealth({ healthy: false, latency_ms: 0, error: "unreachable" });
-        }
+    subscribeConnectionState((state) => {
+      setConnectionState(state);
+      // Reset latency when disconnected/reconnecting
+      if (state === "disconnected" || state === "connecting") {
+        setLatencyMs(null);
       }
-    }
+    }).then((fn) => { unlistenConn = fn; }).catch(() => {});
 
-    check();
-    const interval = setInterval(check, 30_000);
+    subscribeHealthUpdate((event: HealthUpdateEvent) => {
+      if (event.healthy) {
+        setLatencyMs(event.latency_ms);
+      }
+    }).then((fn) => { unlistenHealth = fn; }).catch(() => {});
+
     return () => {
-      cancelled = true;
-      clearInterval(interval);
+      unlistenConn?.();
+      unlistenHealth?.();
     };
   }, []);
 
-  if (health === null) {
+  const status: HealthStatus = (() => {
+    if (connectionState === "disconnected") return "disconnected";
+    if (connectionState === "connecting" || connectionState === "reconnecting") return "unknown";
+    // connected
+    if (latencyMs === null) return "connected"; // Connected but no heartbeat pong yet
+    if (latencyMs < 200) return "healthy";
+    return "degraded";
+  })();
+
+  if (status === "disconnected") {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <div className="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+      <div className="flex items-center gap-1.5 text-xs text-red-500 dark:text-red-400" title={t("health.unhealthy")}>
+        <div className="w-2 h-2 rounded-full bg-red-500" />
+        {t("health.unhealthy")}
+      </div>
+    );
+  }
+
+  if (status === "unknown") {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+        {t("connection.connecting")}
+      </div>
+    );
+  }
+
+  if (status === "connected") {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+        <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
         {t("health.checking")}
       </div>
     );
   }
 
-  if (health.healthy) {
+  if (status === "degraded") {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-        {t("health.healthy")} ({health.latency_ms}ms)
+      <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400" title={`${latencyMs}ms`}>
+        <div className="w-2 h-2 rounded-full bg-amber-500" />
+        {t("health.healthy")} ({latencyMs}ms)
       </div>
     );
   }
 
+  // healthy
   return (
-    <div className="flex items-center gap-1.5 text-xs text-red-500 dark:text-red-400" title={health.error ?? undefined}>
-      <div className="w-2 h-2 rounded-full bg-red-500" />
-      {t("health.unhealthy")}
+    <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+      {t("health.healthy")} ({latencyMs}ms)
     </div>
   );
 }

@@ -67,11 +67,10 @@ export interface TaskFinishedEvent {
   latency_ms: number;
 }
 
-/** 服务器健康状态 */
-export interface ServerHealth {
+/** 服务器健康状态 — 由 WS 心跳推送，不再通过 HTTP 轮询 */
+export interface HealthUpdateEvent {
   healthy: boolean;
   latency_ms: number;
-  error: string | null;
 }
 
 const EVENTS = {
@@ -83,6 +82,7 @@ const EVENTS = {
   AUTH_STATE_CHANGED: "share:auth-state-changed",
   P2P_SESSION_STATE: "share:p2p-session-state",
   P2P_CONNECTION_STATUS: "share:p2p-connection-status",
+  HEALTH_UPDATE: "share:health-update",
 } as const;
 
 /** 订阅连接状态变化。返回的函数取消订阅。 */
@@ -142,4 +142,11 @@ export function subscribeP2PConnectionStatus(
   handler: (event: P2PConnectionEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<P2PConnectionEvent>(EVENTS.P2P_CONNECTION_STATUS, (e) => handler(e.payload));
+}
+
+/** 订阅服务器健康状态变化事件（由 WS 心跳推送，替代 HTTP 轮询）。 */
+export function subscribeHealthUpdate(
+  handler: (event: HealthUpdateEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<HealthUpdateEvent>(EVENTS.HEALTH_UPDATE, (e) => handler(e.payload));
 }

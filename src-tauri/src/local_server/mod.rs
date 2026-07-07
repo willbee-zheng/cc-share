@@ -1,8 +1,8 @@
 //! Local OpenAI-compatible HTTP server (consumer entrypoint).
 //!
-//! cc-share listens on `127.0.0.1:8081` (configurable). Users point any
+//! cc-share listens on `127.0.0.1:18081` (configurable). Users point any
 //! OpenAI-compatible client (including cc-switch itself, by adding a custom
-//! provider) at `http://127.0.0.1:8081/v1`. The server first tries P2P
+//! provider) at `http://127.0.0.1:18081/v1`. The server first tries P2P
 //! direct connection, then falls back to cloud relay via `/api/v1/dispatch`.
 //!
 //! Supported endpoints:

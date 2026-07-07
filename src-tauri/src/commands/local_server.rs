@@ -26,7 +26,7 @@ impl LocalServerHandle {
 }
 
 /// Default bind address for the local consumer server.
-pub const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8081";
+pub const DEFAULT_BIND_ADDR: &str = "127.0.0.1:18081";
 
 /// Start the local consumer server. Idempotent: re-starting while running
 /// returns the existing address.

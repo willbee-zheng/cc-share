@@ -71,6 +71,9 @@ pub mod events {
     /// P2P connection status changed (started, stopped, peer_connected, peer_disconnected).
     /// Payload: { status, port?, peer_address?, active_connections }
     pub const P2P_CONNECTION_STATUS: &str = "share:p2p-connection-status";
+    /// Heartbeat round-trip health update.
+    /// Payload: { healthy: bool, latency_ms: u64 }
+    pub const HEALTH_UPDATE: &str = "share:health-update";
 }
 
 /// Boot the SharePlan desktop app.
@@ -126,7 +129,6 @@ pub fn run() {
             commands::share::share_connect,
             commands::share::share_disconnect,
             commands::share::share_get_status,
-            commands::share::check_server_health,
             commands::wallet::get_wallet,
             commands::wallet::update_wallet_balance,
             commands::wallet::get_recent_task_logs,

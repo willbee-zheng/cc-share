@@ -31,7 +31,7 @@ SharePlan Desktop is the client application for the SharePlan P2P AI sharing pla
     │  Desktop       │  │ Desktop    │  │  Desktop        │
     │       │        │  │     │      │  │       │         │
     │  cc-switch     │  │ cc-switch  │  │  Local Server   │
-    │  :15721        │  │ :15721     │  │  :8081          │
+    │  :15721        │  │ :15721     │  │  :18081          │
     │       │        │  │     │      │  │       │         │
     └───────┼────────┘  └─────┼──────┘  └───────┼─────────┘
             │                 │                  │
@@ -43,7 +43,7 @@ SharePlan Desktop is the client application for the SharePlan P2P AI sharing pla
 
 **Supplier** — Your cc-switch proxy receives tasks from the cloud, calls upstream APIs with your keys, and sends results back. You earn credits per token.
 
-**Consumer** — The local OpenAI-compatible server at `:8081` forwards your requests to the cloud, which dispatches them to the best available supplier. You spend credits per token.
+**Consumer** — The local OpenAI-compatible server at `:18081` forwards your requests to the cloud, which dispatches them to the best available supplier. You spend credits per token.
 
 ## Features
 
@@ -115,15 +115,15 @@ While sharing:
 ### 3. Use the Pool (Consumer)
 
 1. Switch to **Consume** tab → select **Consumer** role (this stops any running supplier)
-2. Click **Start Local Server** — starts at `127.0.0.1:8081`
+2. Click **Start Local Server** — starts at `127.0.0.1:18081`
 3. Add a custom provider in cc-switch or any OpenAI-compatible client:
-   - **Base URL**: `http://127.0.0.1:8081/v1`
+   - **Base URL**: `http://127.0.0.1:18081/v1`
    - **API Key**: any non-empty string (auth is handled server-side)
 4. Send requests as usual — they'll be routed to the best available supplier
 
 Test with curl:
 ```bash
-curl http://127.0.0.1:8081/v1/chat/completions \
+curl http://127.0.0.1:18081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"hello"}],"stream":false}'
 ```
@@ -140,7 +140,7 @@ SharePlan Desktop stores all settings in a local SQLite database. Key configurat
 |---------|-------------|---------|
 | Server address | Cloud server domain or `host:port` | — |
 | Role | `Supplier`, `Consumer`, or `Idle` | `Idle` |
-| Local server port | Consumer mode OpenAI-compatible port | `8081` |
+| Local server port | Consumer mode OpenAI-compatible port | `18081` |
 | Heartbeat interval | How often to send heartbeats to cloud (seconds) | `30` |
 | Reconnect interval | Delay between reconnection attempts (seconds) | `5` |
 | Use HTTPS | Force HTTPS/WSS for all cloud connections | auto-detected |
@@ -179,7 +179,7 @@ src-tauri/src/
 ├── content_filter/    Keyword-based content moderation
 ├── credits/           Per-token pricing, settlement, wallet
 ├── database/          Independent share.db (schema v4, DAOs)
-├── local_server/      OpenAI-compatible HTTP server (:8081) for consumer mode
+├── local_server/      OpenAI-compatible HTTP server (:18081) for consumer mode
 ├── share/             P2P core
 │   ├── client.rs           WebSocket client with reconnect
 │   ├── daemon.rs           Daemon lifecycle management
