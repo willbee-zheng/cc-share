@@ -4,7 +4,7 @@
 //! 处理断线重连（指数退避），完整的 send/recv 循环、心跳、超时检测。
 
 use crate::error::ShareError;
-use crate::share::protocol::{NodeStatus, TaskPayload, TaskResult};
+use crate::share::protocol::{NodeStatus, SettlementReceipt, TaskPayload, TaskResult};
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -109,6 +109,8 @@ pub enum IncomingMessage {
     Pong { latency_ms: u64 },
     /// P2P 信令：云端请求本节点接受直连
     P2pOffer(crate::share::protocol::P2POffer),
+    /// 结算回执：云端 Finalize 后推送的计费结果
+    SettlementReceipt(crate::share::protocol::SettlementReceipt),
 }
 
 /// P2P 客户端，管理与云端调度服务器的 WebSocket 长连接
@@ -122,6 +124,8 @@ pub struct P2PClient {
     health_callback: Option<Arc<dyn Fn(u64) + Send + Sync>>,
     /// Channel for P2P offer messages received from the cloud.
     p2p_offer_tx: Option<mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
+    /// Channel for settlement receipts received from the cloud.
+    settlement_receipt_tx: Option<mpsc::UnboundedSender<SettlementReceipt>>,
 }
 
 type WsSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>;
@@ -138,12 +142,18 @@ impl P2PClient {
             error_callback: None,
             health_callback: None,
             p2p_offer_tx: None,
+            settlement_receipt_tx: None,
         }
     }
 
     /// Set the channel for receiving P2P offer messages from the cloud.
     pub fn set_p2p_offer_channel(&mut self, tx: mpsc::UnboundedSender<crate::share::protocol::P2POffer>) {
         self.p2p_offer_tx = Some(tx);
+    }
+
+    /// Set the channel for receiving settlement receipts from the cloud.
+    pub fn set_settlement_receipt_channel(&mut self, tx: mpsc::UnboundedSender<SettlementReceipt>) {
+        self.settlement_receipt_tx = Some(tx);
     }
 
     /// 获取发送端，用于从其他模块发送消息
@@ -208,6 +218,7 @@ impl P2PClient {
                         &mut outgoing_rx,
                         &task_tx,
                         self.p2p_offer_tx.as_ref(),
+                        self.settlement_receipt_tx.as_ref(),
                         self.config.heartbeat_interval_secs,
                         self.running.clone(),
                         health_cb_clone,
@@ -299,6 +310,7 @@ async fn run_session(
     outgoing_rx: &mut mpsc::UnboundedReceiver<OutgoingMessage>,
     task_tx: &mpsc::UnboundedSender<TaskPayload>,
     p2p_offer_tx: Option<&mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
+    settlement_receipt_tx: Option<&mpsc::UnboundedSender<SettlementReceipt>>,
     heartbeat_interval_secs: u64,
     running: Arc<AtomicBool>,
     health_cb: Option<Arc<dyn Fn(u64) + Send + Sync>>,
@@ -321,11 +333,11 @@ async fn run_session(
             frame = stream.next() => {
                 match frame {
                     Some(Ok(tungstenite::Message::Text(txt))) => {
-                        handle_incoming_text(&txt, task_tx, p2p_offer_tx, &last_heartbeat_sent, &health_cb);
+                        handle_incoming_text(&txt, task_tx, p2p_offer_tx, settlement_receipt_tx, &last_heartbeat_sent, &health_cb);
                     }
                     Some(Ok(tungstenite::Message::Binary(b))) => {
                         if let Ok(txt) = std::str::from_utf8(&b) {
-                            handle_incoming_text(txt, task_tx, p2p_offer_tx, &last_heartbeat_sent, &health_cb);
+                            handle_incoming_text(txt, task_tx, p2p_offer_tx, settlement_receipt_tx, &last_heartbeat_sent, &health_cb);
                         }
                     }
                     Some(Ok(tungstenite::Message::Ping(p))) => {
@@ -368,6 +380,7 @@ fn handle_incoming_text(
     txt: &str,
     task_tx: &mpsc::UnboundedSender<TaskPayload>,
     p2p_offer_tx: Option<&mpsc::UnboundedSender<crate::share::protocol::P2POffer>>,
+    settlement_receipt_tx: Option<&mpsc::UnboundedSender<SettlementReceipt>>,
     last_heartbeat_sent: &Option<std::time::Instant>,
     health_cb: &Option<Arc<dyn Fn(u64) + Send + Sync>>,
 ) {
@@ -402,6 +415,22 @@ fn handle_incoming_text(
                 }
             }
             Err(e) => log::warn!("CC-Share: 解析 p2p_offer 失败 - {e}"),
+        },
+        "settlement_receipt" => match serde_json::from_value::<SettlementReceipt>(probe) {
+            Ok(receipt) => {
+                log::info!(
+                    "CC-Share: 收到结算回执 task_id={} direction={} credits={}",
+                    receipt.task_id, receipt.direction, receipt.credits
+                );
+                if let Some(tx) = settlement_receipt_tx {
+                    if tx.send(receipt).is_err() {
+                        log::warn!("CC-Share: settlement_receipt_tx 已关闭，丢弃回执");
+                    }
+                } else {
+                    log::warn!("CC-Share: 无结算回执通道，丢弃回执");
+                }
+            }
+            Err(e) => log::warn!("CC-Share: 解析 settlement_receipt 失败 - {e}"),
         },
         "pong" => {
             // 计算心跳往返延迟
@@ -640,7 +669,7 @@ mod tests {
         let raw = r#"{"type":"task","task_id":"t1","model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}],"stream":false,"params":null}"#;
         let (tx, mut rx) = mpsc::unbounded_channel();
         let no_cb: Option<Arc<dyn Fn(u64) + Send + Sync>> = None;
-        handle_incoming_text(raw, &tx, None, &None, &no_cb);
+        handle_incoming_text(raw, &tx, None, None, &None, &no_cb);
         let task = rx.try_recv().expect("应收到 task");
         assert_eq!(task.task_id, "t1");
         assert_eq!(task.model, "claude-sonnet-4-6");
@@ -650,7 +679,7 @@ mod tests {
     fn test_handle_incoming_pong_ignored() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let no_cb: Option<Arc<dyn Fn(u64) + Send + Sync>> = None;
-        handle_incoming_text(r#"{"type":"pong","latency_ms":5}"#, &tx, None, &None, &no_cb);
+        handle_incoming_text(r#"{"type":"pong","latency_ms":5}"#, &tx, None, None, &None, &no_cb);
         assert!(rx.try_recv().is_err());
     }
 
@@ -658,7 +687,7 @@ mod tests {
     fn test_handle_incoming_unknown_type_ignored() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let no_cb: Option<Arc<dyn Fn(u64) + Send + Sync>> = None;
-        handle_incoming_text(r#"{"type":"nope"}"#, &tx, None, &None, &no_cb);
+        handle_incoming_text(r#"{"type":"nope"}"#, &tx, None, None, &None, &no_cb);
         assert!(rx.try_recv().is_err());
     }
 

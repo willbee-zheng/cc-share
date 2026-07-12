@@ -268,6 +268,7 @@ impl P2PConsumer {
             success: p2p_result.status == "completed",
             error: p2p_result.error,
             node_id: None, // P2P mode doesn't have a node_id from cloud
+            credits_spent: None, // Credits come via settlement receipt
         })
     }
 

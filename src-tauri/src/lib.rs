@@ -26,6 +26,7 @@ pub mod url_utils;
 
 use commands::providers::ProviderState;
 use ccswitch::{CcSwitchProxyClient, ProxyExecutor, ProviderRegistry};
+use credits::pricing::PricingTable;
 use database::ShareDb;
 use diagnostics::Diagnostics;
 use p2p::connection::{P2PConnectionManager, DEFAULT_P2P_PORT};
@@ -53,6 +54,8 @@ pub struct ShareState {
     pub p2p_key_manager: Arc<P2PKeyManager>,
     /// P2P connection manager for QUIC direct connections.
     pub p2p_conn_manager: Arc<P2PConnectionManager>,
+    /// Pricing table (cloud-synced, fallback to hardcoded defaults).
+    pub pricing: Arc<PricingTable>,
 }
 
 /// Tauri event names exposed to the frontend.
@@ -136,6 +139,8 @@ pub fn run() {
             commands::wallet::get_supplier_token_by_model,
             commands::wallet::get_consumer_token_by_model,
             commands::wallet::sync_wallet,
+            commands::wallet::fetch_pricing,
+            commands::wallet::get_pricing,
             commands::consume::share_consume,
             commands::consume::list_share_nodes,
             commands::consume_config::get_role,
@@ -189,7 +194,8 @@ pub fn run() {
             p2p_conn_manager.set_app_handle(app.handle().clone());
             let p2p_conn_manager = Arc::new(p2p_conn_manager);
 
-            let daemon = Daemon::new(db.clone(), executor, "default".into(), registry.clone(), p2p_key_manager.clone(), p2p_conn_manager.clone());
+            let pricing = Arc::new(PricingTable::new(&db));
+            let daemon = Daemon::new(db.clone(), executor, "default".into(), registry.clone(), p2p_key_manager.clone(), p2p_conn_manager.clone(), pricing.clone());
             let db_for_providers = db.clone();
 
             // 启动 system_log batch writer：从 log_rx 取出待写日志批量入库，
@@ -235,6 +241,7 @@ pub fn run() {
                 daemon: Mutex::new(daemon),
                 p2p_key_manager,
                 p2p_conn_manager,
+                pricing,
             });
 
             app.manage(ProviderState {

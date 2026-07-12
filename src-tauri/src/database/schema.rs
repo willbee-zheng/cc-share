@@ -6,7 +6,7 @@
 use rusqlite::Connection;
 
 /// 当前 Schema 版本
-pub(crate) const SCHEMA_VERSION: i32 = 6;
+pub(crate) const SCHEMA_VERSION: i32 = 7;
 
 /// 创建所有数据库表
 pub fn create_tables(conn: &Connection) -> Result<(), String> {
@@ -276,6 +276,22 @@ pub fn apply_migrations(conn: &Connection, from_version: i32) -> Result<(), Stri
                 )
                 .map_err(|e| format!("v6 迁移 p2p_session_log 建表失败: {e}"))?;
                 set_user_version(conn, 6)?;
+            }
+            6 => {
+                log::info!("share.db: 从 v6 迁移到 v7（添加 settlement_receipts 表）");
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS settlement_receipts (
+                        task_id TEXT PRIMARY KEY,
+                        direction TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        credits REAL NOT NULL,
+                        balance_after REAL NOT NULL,
+                        received_at INTEGER NOT NULL
+                    )",
+                    [],
+                )
+                .map_err(|e| format!("v7 迁移建表失败: {e}"))?;
+                set_user_version(conn, 7)?;
             }
             _ => {
                 return Err(format!(

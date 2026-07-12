@@ -50,6 +50,8 @@ pub struct ConsumeResponse {
     pub success: bool,
     pub error: Option<String>,
     pub node_id: Option<String>,
+    /// 云端计费信息（总费用）
+    pub credits_spent: Option<f64>,
 }
 
 /// 与 cloud-server 的 dispatch.go DispatchRequestBody 字段对齐
@@ -67,8 +69,19 @@ struct DispatchBody<'a> {
 #[derive(Debug, Deserialize)]
 struct DispatchResponse {
     node_id: Option<String>,
+    task_id: Option<String>,
     content: String,
     usage: Option<TokenUsage>,
+    billing: Option<DispatchBilling>,
+}
+
+/// 云端返回的计费信息
+#[derive(Debug, Deserialize)]
+struct DispatchBilling {
+    supplier: Option<String>,
+    platform: Option<String>,
+    total: Option<String>,
+    frozen: Option<String>,
 }
 
 /// 错误响应
@@ -131,6 +144,7 @@ impl Consumer {
                     success: false,
                     error: Some(format!("encode body: {e}")),
                     node_id: None,
+                    credits_spent: None,
                 };
                 self.log(&task_id, &request, &resp, start);
                 return resp;
@@ -184,6 +198,7 @@ impl Consumer {
                     success: false,
                     error: Some(format!("dispatch http: {e}")),
                     node_id: None,
+                    credits_spent: None,
                 };
                 self.log(&task_id, &request, &resp, start);
                 return resp;
@@ -205,6 +220,7 @@ impl Consumer {
                 success: false,
                 error: Some(err),
                 node_id: None,
+                credits_spent: None,
             };
             self.log(&task_id, &request, &resp, start);
             return resp;
@@ -220,11 +236,17 @@ impl Consumer {
                     success: false,
                     error: Some(format!("decode response: {e}")),
                     node_id: None,
+                    credits_spent: None,
                 };
                 self.log(&task_id, &request, &resp, start);
                 return resp;
             }
         };
+
+        // Extract credits from billing response
+        let credits_spent = parsed.billing.as_ref().and_then(|b| {
+            b.total.as_ref().map(|t| t.parse::<f64>().unwrap_or(0.0))
+        });
 
         let resp = ConsumeResponse {
             content: parsed.content,
@@ -232,6 +254,7 @@ impl Consumer {
             success: true,
             error: None,
             node_id: parsed.node_id,
+            credits_spent,
         };
         log::info!(
             "consume [{}]: success, node_id={:?}, usage={:?}, latency={}ms",
@@ -266,7 +289,7 @@ impl Consumer {
                     .as_ref()
                     .map(|u| u.completion_tokens as i32)
                     .unwrap_or(0),
-                credits: 0.0,
+                credits: resp.credits_spent.unwrap_or(0.0),
                 latency_ms: Some(latency_ms),
                 status: if resp.success { "completed" } else { "failed" }.into(),
                 error_message: resp.error.clone(),

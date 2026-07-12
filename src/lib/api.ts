@@ -162,6 +162,22 @@ export function getSupplierTokenByModel(days: number): Promise<ModelTokenStat[]>
   return invoke<ModelTokenStat[]>(cmd("get_supplier_token_by_model"), { days });
 }
 
+// ---------- Pricing ----------
+
+export interface PricingEntry {
+  model_prefix: string;
+  prompt_per_1k: number;
+  completion_per_1k: number;
+}
+
+export function fetchPricing(): Promise<PricingEntry[]> {
+  return invoke<PricingEntry[]>(cmd("fetch_pricing"));
+}
+
+export function getPricing(): Promise<PricingEntry[]> {
+  return invoke<PricingEntry[]>(cmd("get_pricing"));
+}
+
 export function getConsumerTokenByModel(days: number): Promise<ModelTokenStat[]> {
   return invoke<ModelTokenStat[]>(cmd("get_consumer_token_by_model"), { days });
 }

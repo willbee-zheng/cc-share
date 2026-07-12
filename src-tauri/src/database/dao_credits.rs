@@ -138,6 +138,18 @@ impl ShareDb {
 
     // ---- P2P Task Log ----
 
+    /// 更新任务日志的积分为云端权威值（幂等：如果已有非零值则跳过）
+    pub fn update_task_credits(&self, task_id: &str, credits: f64) -> Result<(), ShareError> {
+        let conn = self.conn.lock().map_err(|e| ShareError::Database(e.to_string()))?;
+        let rows = conn.execute(
+            "UPDATE p2p_task_log SET credits = ?1 WHERE task_id = ?2 AND credits = 0",
+            params![credits, task_id],
+        )?;
+        // rows == 0 means task_id not found or credits already non-zero — both are fine
+        let _ = rows;
+        Ok(())
+    }
+
     /// 插入任务日志
     pub fn insert_p2p_task_log(&self, log: &P2PTaskLog) -> Result<(), ShareError> {
         let conn = self.conn.lock().map_err(|e| ShareError::Database(e.to_string()))?;

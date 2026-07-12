@@ -1,27 +1,41 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Calculator } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { fetchPricing, type PricingEntry } from "@/lib/api";
+
+const SUPPLIER_RATE = 0.9;
+
+/** Hardcoded defaults used when cloud pricing is unavailable. */
+const DEFAULT_PRICING: PricingEntry[] = [
+  { model_prefix: "claude-opus-4", prompt_per_1k: 15, completion_per_1k: 75 },
+  { model_prefix: "claude-sonnet-4", prompt_per_1k: 3, completion_per_1k: 15 },
+  { model_prefix: "claude-haiku-4", prompt_per_1k: 0.8, completion_per_1k: 4 },
+  { model_prefix: "claude-3-5-sonnet", prompt_per_1k: 3, completion_per_1k: 15 },
+  { model_prefix: "gpt-4o", prompt_per_1k: 2.5, completion_per_1k: 10 },
+  { model_prefix: "gpt-4o-mini", prompt_per_1k: 0.15, completion_per_1k: 0.6 },
+  { model_prefix: "gpt-4", prompt_per_1k: 10, completion_per_1k: 30 },
+  { model_prefix: "gemini-1.5-pro", prompt_per_1k: 1.25, completion_per_1k: 5 },
+  { model_prefix: "gemini-1.5-flash", prompt_per_1k: 0.075, completion_per_1k: 0.3 },
+  { model_prefix: "deepseek", prompt_per_1k: 0.14, completion_per_1k: 0.28 },
+];
 
 interface ModelPreset {
   id: string;
-  /** credits per 1K prompt+completion combined (rough avg) */
+  label: string;
+  /** Blended rate = (prompt + completion) / 2 per 1K tokens */
   pricePerKToken: number;
 }
 
-const MODELS: ModelPreset[] = [
-  { id: "claude-sonnet-4-6", pricePerKToken: 9 },
-  { id: "claude-opus-4-8", pricePerKToken: 45 },
-  { id: "claude-haiku-4-5", pricePerKToken: 2.4 },
-  { id: "gpt-4o", pricePerKToken: 6.25 },
-  { id: "gpt-4o-mini", pricePerKToken: 0.375 },
-  { id: "gemini-1.5-pro", pricePerKToken: 3.125 },
-  { id: "deepseek", pricePerKToken: 0.21 },
-];
-
-const SUPPLIER_RATE = 0.9;
+function pricingToPresets(entries: PricingEntry[]): ModelPreset[] {
+  return entries.map((e) => ({
+    id: e.model_prefix,
+    label: e.model_prefix,
+    pricePerKToken: (e.prompt_per_1k + e.completion_per_1k) / 2,
+  }));
+}
 
 /**
  * 收益预估计算器：输入活跃小时、平均 tokens/小时、模型，输出每日/每月预估积分。
@@ -33,12 +47,46 @@ export function EarningsCalculator() {
   const { t } = useTranslation("share");
   const [activeHours, setActiveHours] = useState(8);
   const [tokensPerHour, setTokensPerHour] = useState(50_000);
-  const [modelId, setModelId] = useState(MODELS[0].id);
+  const [models, setModels] = useState<ModelPreset[]>(() =>
+    pricingToPresets(DEFAULT_PRICING),
+  );
+  const [modelId, setModelId] = useState(models[0]?.id ?? "claude-sonnet-4");
+  const [loading, setLoading] = useState(true);
 
-  const model = MODELS.find((m) => m.id === modelId) ?? MODELS[0];
+  useEffect(() => {
+    fetchPricing()
+      .then((entries) => {
+        if (entries.length > 0) {
+          setModels(pricingToPresets(entries));
+          setModelId(entries[0].model_prefix);
+        }
+      })
+      .catch(() => {
+        // Fall back to defaults on error
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const model = models.find((m) => m.id === modelId) ?? models[0];
   const dailyTokens = activeHours * tokensPerHour;
   const dailyCredits = (dailyTokens / 1000) * model.pricePerKToken * SUPPLIER_RATE;
   const monthlyCredits = dailyCredits * 30;
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Calculator className="w-4 h-4" />
+            {t("calculator.title")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">{t("calculator.loading") ?? "Loading pricing..."}</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -82,9 +130,9 @@ export function EarningsCalculator() {
             onChange={(e) => setModelId(e.target.value)}
             className="w-full h-9 rounded-md border bg-background px-3 text-sm"
           >
-            {MODELS.map((m) => (
+            {models.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.id} ({m.pricePerKToken}/1K)
+                {m.label} ({m.pricePerKToken.toFixed(2)}/1K)
               </option>
             ))}
           </select>

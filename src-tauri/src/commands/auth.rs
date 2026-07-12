@@ -249,6 +249,9 @@ pub async fn auth_browser_login(
     // Derive the dashboard URL from server_host by stripping the "api." prefix.
     // e.g. "api.shareplan.com" → "http://shareplan.com"
     let dashboard_url = crate::url_utils::build_dashboard_base(&server_host);
+    log::info!(
+        "auth_browser_login: server_host={server_host}, base_url={base_url}, dashboard_url={dashboard_url}"
+    );
     if dashboard_url.is_empty() {
         return Err("Dashboard host could not be determined".to_string());
     }
@@ -269,6 +272,7 @@ pub async fn auth_browser_login(
         callback = urlencoding::encode(&callback_url),
         state = state_param,
     );
+    log::info!("auth_browser_login: opening browser URL: {browser_url}");
 
     // Open the URL in the default browser.
     tauri_plugin_opener::open_url(&browser_url, None::<String>)

@@ -6,6 +6,7 @@
 //! 因此 today_* 与 hourly_trend 都以 token 数为口径。
 
 use crate::database::dao_credits::{ModelTokenStat, P2PTaskLog, UserWallet};
+use crate::credits::pricing::PricingEntry;
 use crate::ShareState;
 
 use serde::Deserialize;
@@ -65,8 +66,9 @@ struct CloudProfileResponse {
 /// Sync wallet balance from the cloud server.
 ///
 /// Reads the auth token from the stored auth state, calls the cloud
-/// `/api/v1/user/profile` endpoint, and updates the local wallet with the
-/// cloud balance data.
+/// `/api/v1/user/profile` endpoint to update the local wallet, and then
+/// pulls recent settlement receipts from `/api/v1/settlements/recent`
+/// to update task credits for any receipts missed during WS disconnection.
 ///
 /// Automatically retries with HTTPS if the initial HTTP request returns 403,
 /// which indicates a production server that requires TLS.
@@ -86,10 +88,10 @@ pub async fn sync_wallet(state: tauri::State<'_, ShareState>) -> Result<UserWall
         return Err("Server host not configured".to_string());
     }
 
-    let url = format!("{}/api/v1/user/profile", cloud_base.trim_end_matches('/'));
-
+    // Step 1: Sync wallet balance from profile endpoint.
+    let profile_url = format!("{}/api/v1/user/profile", cloud_base.trim_end_matches('/'));
     let client = crate::http_client::shareplan_client();
-    let resp = fetch_profile(&client, &url, &auth.access_token).await?;
+    let resp = fetch_profile(&client, &profile_url, &auth.access_token).await?;
 
     let profile: CloudProfileResponse = resp
         .json()
@@ -111,6 +113,45 @@ pub async fn sync_wallet(state: tauri::State<'_, ShareState>) -> Result<UserWall
         .db
         .set_wallet_from_cloud(&auth.user_id, balance, total_earned, total_spent)
         .map_err(|e| e.to_string())?;
+
+    // Step 2: Pull recent settlement receipts to catch up on missed WS pushes.
+    let last_sync = state
+        .db
+        .get_config("last_settlement_sync")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let receipts_url = format!(
+        "{}/api/v1/settlements/recent?after={}&limit=100",
+        cloud_base.trim_end_matches('/'),
+        last_sync
+    );
+
+    match fetch_settlements(&client, &receipts_url, &auth.access_token).await {
+        Ok(receipts) => {
+            let mut max_ts = last_sync;
+            for r in &receipts {
+                if let Err(e) = state.db.update_task_credits(&r.task_id, r.credits) {
+                    log::warn!("sync_wallet: update_task_credits({}): {e}", r.task_id);
+                }
+                if r.timestamp > max_ts {
+                    max_ts = r.timestamp;
+                }
+            }
+            // Save the latest receipt timestamp for incremental sync next time.
+            if max_ts > last_sync {
+                if let Err(e) = state.db.set_config("last_settlement_sync", &max_ts.to_string()) {
+                    log::warn!("sync_wallet: save last_settlement_sync: {e}");
+                }
+            }
+            log::info!("sync_wallet: processed {} settlement receipts", receipts.len());
+        }
+        Err(e) => {
+            log::warn!("sync_wallet: failed to fetch settlements (non-fatal): {e}");
+        }
+    }
 
     // Return the updated wallet.
     state
@@ -155,6 +196,51 @@ async fn fetch_profile(
         status,
         &body[..body.len().min(200)]
     ))
+}
+
+/// A settlement receipt from the cloud `/settlements/recent` endpoint.
+#[derive(Debug, serde::Deserialize)]
+struct CloudSettlementReceipt {
+    task_id: String,
+    direction: String,
+    credits: f64,
+    timestamp: i64,
+}
+
+/// Response from the settlements/recent endpoint.
+#[derive(Debug, serde::Deserialize)]
+struct SettlementsResponse {
+    receipts: Vec<CloudSettlementReceipt>,
+}
+
+/// Fetch settlement receipts from cloud.
+async fn fetch_settlements(
+    client: &reqwest::Client,
+    url: &str,
+    access_token: &str,
+) -> Result<Vec<CloudSettlementReceipt>, String> {
+    log::info!("sync_wallet: GET {}", url);
+
+    let resp = client
+        .get(url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("fetch settlements: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("settlements returned {}: {}", status, &body[..body.len().min(200)]));
+    }
+
+    let settlements: SettlementsResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("parse settlements response: {e}"))?;
+
+    Ok(settlements.receipts)
 }
 
 /// 钱包摘要：余额 + 24h 供应/消费 token + 趋势点 + 最近流水
@@ -296,6 +382,35 @@ fn since_from_days(days: i32) -> Option<i64> {
         let now = chrono::Utc::now().timestamp();
         Some(now - (days as i64) * 86400)
     }
+}
+
+/// Fetch pricing rules from the cloud server and update the local cache.
+///
+/// Returns the list of pricing entries after refresh.
+#[tauri::command]
+pub async fn fetch_pricing(state: tauri::State<'_, ShareState>) -> Result<Vec<PricingEntry>, String> {
+    let auth = crate::auth::token::load_auth_state(&state.db)
+        .map_err(|e| format!("load auth state: {e}"))?
+        .ok_or("Not logged in")?;
+
+    let cfg = state.client_config.read().await.clone();
+    let cloud_base = crate::url_utils::build_http_base_with_tls(&cfg.server_host, cfg.use_https);
+    if cloud_base.is_empty() {
+        return Err("Server host not configured".to_string());
+    }
+
+    state
+        .pricing
+        .refresh_from_cloud(&state.db, &cfg.server_host, &auth.access_token, cfg.use_https)
+        .await?;
+
+    Ok(state.pricing.all_pricings())
+}
+
+/// Return the current in-memory pricing entries (no network call).
+#[tauri::command]
+pub async fn get_pricing(state: tauri::State<'_, ShareState>) -> Result<Vec<PricingEntry>, String> {
+    Ok(state.pricing.all_pricings())
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@
 
 use crate::ccswitch::ProviderRegistry;
 use crate::commands::providers;
+use crate::credits::pricing::PricingTable;
 use crate::database::ShareDb;
 use crate::error::ShareError;
 use crate::p2p::connection::{P2PConnectionManager, DEFAULT_P2P_PORT};
@@ -14,7 +15,7 @@ use crate::p2p::key::P2PKeyManager;
 use crate::p2p::supplier::{self, P2PSessionStore};
 use crate::share::client::{ClientConfig, ConnectionErrorInfo, ConnectionState, OutgoingMessage, P2PClient};
 use crate::share::executor::SharedExecutor;
-use crate::share::protocol::{NodeState, NodeStatus, P2PAnswer, P2POffer, TaskPayload, TaskStatus};
+use crate::share::protocol::{NodeState, NodeStatus, P2PAnswer, P2POffer, SettlementReceipt, TaskPayload, TaskStatus};
 use crate::share::supplier::Supplier;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -26,6 +27,9 @@ use tokio::task::JoinHandle;
 /// How often (in seconds) the daemon refreshes model availability from cc-switch
 /// and re-sends NodeStatus to the cloud.
 const MODEL_REFRESH_INTERVAL_SECS: u64 = 150;
+
+/// How often (in seconds) the daemon refreshes pricing from the cloud.
+const PRICING_REFRESH_INTERVAL_SECS: u64 = 6 * 3600; // 6 hours
 
 /// 由 daemon 推给上层（commands/Tauri events）的通知
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +63,8 @@ pub struct Daemon {
     running: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
     refresh_handle: Option<JoinHandle<()>>,
+    /// Handle for periodic pricing refresh task.
+    pricing_refresh_handle: Option<JoinHandle<()>>,
     outgoing_tx: Option<mpsc::UnboundedSender<OutgoingMessage>>,
     /// cc-switch provider registry for periodic model refresh.
     provider_registry: Arc<ProviderRegistry>,
@@ -68,6 +74,8 @@ pub struct Daemon {
     p2p_conn_manager: Arc<P2PConnectionManager>,
     /// P2P session store for mapping session_id → consumer_pubkey.
     p2p_session_store: Arc<P2PSessionStore>,
+    /// Pricing table (cloud-synced, fallback to defaults).
+    pricing: Arc<PricingTable>,
 }
 
 impl Daemon {
@@ -78,6 +86,7 @@ impl Daemon {
         provider_registry: Arc<ProviderRegistry>,
         p2p_key_manager: Arc<P2PKeyManager>,
         p2p_conn_manager: Arc<P2PConnectionManager>,
+        pricing: Arc<PricingTable>,
     ) -> Self {
         Self {
             db,
@@ -86,11 +95,13 @@ impl Daemon {
             running: Arc::new(AtomicBool::new(false)),
             handle: None,
             refresh_handle: None,
+            pricing_refresh_handle: None,
             outgoing_tx: None,
             provider_registry,
             p2p_key_manager,
             p2p_conn_manager,
             p2p_session_store: Arc::new(P2PSessionStore::new()),
+            pricing,
         }
     }
 
@@ -131,8 +142,10 @@ impl Daemon {
 
         let (task_tx, mut task_rx) = mpsc::unbounded_channel::<TaskPayload>();
         let (p2p_offer_tx, mut p2p_offer_rx) = mpsc::unbounded_channel::<P2POffer>();
+        let (settlement_receipt_tx, mut settlement_receipt_rx) = mpsc::unbounded_channel::<SettlementReceipt>();
         let mut client = P2PClient::new(client_config);
         client.set_p2p_offer_channel(p2p_offer_tx);
+        client.set_settlement_receipt_channel(settlement_receipt_tx);
         let outgoing_tx = client.sender();
         self.outgoing_tx = Some(outgoing_tx.clone());
 
@@ -153,6 +166,7 @@ impl Daemon {
         let executor_for_accept = self.executor.clone();
         let db_for_accept = self.db.clone();
         let db_for_offer = self.db.clone();
+        let db_for_receipts = self.db.clone();
         let p2p_session_store = self.p2p_session_store.clone();
 
         // Clone outgoing_tx for refresh task before moving into session.
@@ -290,6 +304,36 @@ impl Daemon {
                 ).await;
             });
 
+            // 子任务 A3：处理云端下发的结算回执
+            let event_cb_for_receipts = event_cb.clone();
+            let _settlement_receipt_handler: JoinHandle<()> = tokio::spawn(async move {
+                while let Some(receipt) = settlement_receipt_rx.recv().await {
+                    log::info!(
+                        "结算回执: task_id={} direction={} credits={} model={}",
+                        receipt.task_id, receipt.direction, receipt.credits, receipt.model
+                    );
+                    // 更新 p2p_task_log 的 credits（幂等：只在 credits=0 时更新）
+                    if let Err(e) = db_for_receipts.update_task_credits(&receipt.task_id, receipt.credits.parse::<f64>().unwrap_or(0.0)) {
+                        log::warn!("更新任务积分失败: {e}");
+                    }
+                    // 更新本地钱包余额
+                    if !receipt.balance_after.is_empty() {
+                        if let Ok(_balance) = receipt.balance_after.parse::<f64>() {
+                            let earned = if receipt.direction == "supply" { receipt.credits.parse::<f64>().unwrap_or(0.0) } else { 0.0 };
+                            let spent = if receipt.direction == "consume" { receipt.credits.parse::<f64>().unwrap_or(0.0) } else { 0.0 };
+                            if let Err(e) = db_for_receipts.update_wallet_balance("local", earned, spent) {
+                                log::warn!("更新钱包余额失败: {e}");
+                            }
+                        }
+                    }
+                    event_cb_for_receipts(DaemonEvent::TaskFinished {
+                        task_id: receipt.task_id,
+                        status: TaskStatus::Completed,
+                        latency_ms: 0,
+                    });
+                }
+            });
+
             // 子任务 B：WebSocket 连接循环
             let event_cb_for_state = event_cb.clone();
             let state_callback: Box<dyn Fn(ConnectionState) + Send + Sync> = Box::new(move |s| {
@@ -366,6 +410,51 @@ impl Daemon {
         });
         self.refresh_handle = Some(refresh_handle);
 
+        // Start periodic pricing refresh from cloud.
+        // First sync happens immediately, then every 6 hours.
+        let pricing_running = self.running.clone();
+        let pricing_table = self.pricing.clone();
+        let pricing_db = self.db.clone();
+        let pricing_handle = tokio::spawn(async move {
+            // Initial sync
+            {
+                let auth_opt = crate::auth::token::load_auth_state(&pricing_db);
+                let cfg_opt = pricing_db.load_client_config();
+                if let (Ok(Some(auth)), Ok(Some(cfg))) = (auth_opt, cfg_opt) {
+                    match pricing_table.refresh_from_cloud(&pricing_db, &cfg.server_host, &auth.access_token, cfg.use_https).await {
+                        Ok(count) => log::info!("pricing initial sync: updated {} entries from cloud", count),
+                        Err(e) => log::warn!("pricing initial sync failed: {e}, will retry later"),
+                    }
+                }
+            }
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(PRICING_REFRESH_INTERVAL_SECS)).await;
+                if !pricing_running.load(Ordering::SeqCst) {
+                    break;
+                }
+                // Load auth state for access token
+                let auth = match crate::auth::token::load_auth_state(&pricing_db) {
+                    Ok(Some(a)) => a,
+                    _ => {
+                        log::debug!("pricing refresh: no auth state, skipping");
+                        continue;
+                    }
+                };
+                let cfg = match pricing_db.load_client_config() {
+                    Ok(Some(c)) => c,
+                    _ => {
+                        log::debug!("pricing refresh: no client config, skipping");
+                        continue;
+                    }
+                };
+                match pricing_table.refresh_from_cloud(&pricing_db, &cfg.server_host, &auth.access_token, cfg.use_https).await {
+                    Ok(count) => log::info!("pricing refresh: updated {} pricing entries from cloud", count),
+                    Err(e) => log::warn!("pricing refresh: failed to fetch from cloud: {e}"),
+                }
+            }
+        });
+        self.pricing_refresh_handle = Some(pricing_handle);
+
         Ok(())
     }
 
@@ -399,6 +488,10 @@ impl Daemon {
             h.abort();
             let _ = h.await;
         }
+        if let Some(h) = self.pricing_refresh_handle.take() {
+            h.abort();
+            let _ = h.await;
+        }
         self.outgoing_tx = None;
         log::info!("✓ daemon stop: stopped successfully");
     }
@@ -422,7 +515,8 @@ mod tests {
         let db = create_test_db();
         let key_manager = Arc::new(P2PKeyManager::generate());
         let conn_manager = Arc::new(P2PConnectionManager::new(key_manager.clone(), 15731));
-        Daemon::new(db, Arc::new(NullExecutor), "default".into(), create_test_registry(), key_manager, conn_manager)
+        let pricing = Arc::new(PricingTable::new(&db));
+        Daemon::new(db, Arc::new(NullExecutor), "default".into(), create_test_registry(), key_manager, conn_manager, pricing)
     }
 
     #[test]

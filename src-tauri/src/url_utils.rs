@@ -148,8 +148,10 @@ pub fn build_dashboard_base(server_host: &str) -> String {
         return String::new();
     }
     let authority = &parsed.authority;
-    let derived_authority = if let Some(stripped) = authority.strip_prefix("api.") {
-        stripped
+    // Case-insensitive strip of "api." prefix — users may type "Api.shareplan.com"
+    // or "API.shareplan.com", all of which should resolve to the dashboard host.
+    let derived_authority = if authority.len() > 4 && authority[..4].eq_ignore_ascii_case("api.") {
+        &authority[4..]
     } else {
         authority
     };
@@ -302,5 +304,33 @@ mod tests {
     #[test]
     fn test_dashboard_empty() {
         assert_eq!(build_dashboard_base(""), "");
+    }
+
+    #[test]
+    fn test_dashboard_strips_api_prefix_case_insensitive() {
+        assert_eq!(
+            build_dashboard_base("Api.shareplan.com"),
+            "http://shareplan.com"
+        );
+        assert_eq!(
+            build_dashboard_base("API.shareplan.com"),
+            "http://shareplan.com"
+        );
+        assert_eq!(
+            build_dashboard_base("aPi.shareplan.com"),
+            "http://shareplan.com"
+        );
+    }
+
+    #[test]
+    fn test_dashboard_case_insensitive_with_scheme() {
+        assert_eq!(
+            build_dashboard_base("https://Api.shareplan.com"),
+            "https://shareplan.com"
+        );
+        assert_eq!(
+            build_dashboard_base("http://API.shareplan.com"),
+            "http://shareplan.com"
+        );
     }
 }

@@ -7,15 +7,23 @@
 [English](./README.md) | [中文](./README-zh.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-blue)](https://github.com/datavii/cc-share/releases)
-[![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/datavii/cc-share/releases)
-[![Platform: Linux](https://img.shields.io/badge/platform-Linux-blue)](https://github.com/datavii/cc-share/releases)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-blue)](https://github.com/willbee-zheng/cc-share/releases)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/willbee-zheng/cc-share/releases)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-blue)](https://github.com/willbee-zheng/cc-share/releases)
 
 </div>
 
-SharePlan Desktop is the client application for the SharePlan P2P AI sharing platform. It connects to a SharePlan cloud server to relay tasks between suppliers and consumers, while all LLM calls execute locally through [cc-switch](https://github.com/farion1231/cc-switch).
+SharePlan Desktop is the client app for the SharePlan P2P AI subscription-sharing platform. It pools idle ChatGPT Plus, Claude Pro, and API-key quotas so you can share what you don't use and spend credits on any model in the pool. Every LLM call runs **locally on the supplier's machine** through [cc-switch](https://github.com/farion1231/cc-switch) — your API keys never leave your device.
 
-**Your API keys never leave your machine.** cc-switch holds them and makes all upstream calls. SharePlan Desktop only relays task payloads and results.
+**Your API keys never leave your machine.** cc-switch holds them and makes all upstream calls; SharePlan Desktop only relays task payloads and results.
+
+## Why SharePlan?
+
+- **Keys stay local** — API keys never leave your device. cc-switch handles every upstream call.
+- **Earn while idle** — Your ChatGPT Plus sits unused most of the day. Share it and earn credits for the models you actually need.
+- **Ban-resistant** — Requests originate from the supplier's own machine using their own subscription, indistinguishable from normal use.
+- **Fair token pricing** — Transparent per-token pricing across 10+ models; 90% of credits go to the supplier.
+- **P2P direct connect** — NAT traversal lets consumer and supplier talk directly, falling back to cloud relay when needed.
 
 ## How It Works
 
@@ -31,7 +39,7 @@ SharePlan Desktop is the client application for the SharePlan P2P AI sharing pla
     │  Desktop       │  │ Desktop    │  │  Desktop        │
     │       │        │  │     │      │  │       │         │
     │  cc-switch     │  │ cc-switch  │  │  Local Server   │
-    │  :15721        │  │ :15721     │  │  :18081          │
+    │  :15721        │  │ :15721     │  │  :18081         │
     │       │        │  │     │      │  │       │         │
     └───────┼────────┘  └─────┼──────┘  └───────┼─────────┘
             │                 │                  │
@@ -45,10 +53,13 @@ SharePlan Desktop is the client application for the SharePlan P2P AI sharing pla
 
 **Consumer** — The local OpenAI-compatible server at `:18081` forwards your requests to the cloud, which dispatches them to the best available supplier. You spend credits per token.
 
+The cloud only handles dispatch, billing, and signature verification — it **never** touches API keys or LLM content. Consumer and supplier may also connect directly via NAT traversal, with cloud relay as a fallback.
+
 ## Features
 
-- **Supplier mode** — Share unused AI subscription time and earn credits (90% of token cost goes to you)
+- **Supplier mode** — Share idle AI subscription time and earn credits (90% of token cost goes to you)
 - **Consumer mode** — Access any model in the pool via a local OpenAI-compatible server
+- **P2P direct connect** — NAT hole-punching between peers, with automatic relay fallback
 - **Browser extension bridge** — Share ChatGPT/Claude web sessions without exposing cookies
 - **SSE streaming** — Real-time streaming responses for both supplier and consumer
 - **Activity mutex** — Automatically pauses sharing when you're actively using your own subscription
@@ -60,13 +71,13 @@ SharePlan Desktop is the client application for the SharePlan P2P AI sharing pla
 ## Prerequisites
 
 - [cc-switch](https://github.com/farion1231/cc-switch) — Install from releases and configure at least one provider (Anthropic, OpenAI, or Gemini). Enable the local proxy (default: `127.0.0.1:15721`).
-- A SharePlan cloud server — Either self-host ([shareplan-cloud](https://github.com/datavii/shareplan-cloud)) or use a public instance.
+- A SharePlan cloud server — Either self-host ([shareplan-cloud](https://github.com/willbee-zheng/shareplan-cloud)) or use a public instance.
 
 ## Install
 
 ### Download Release (Recommended)
 
-Download the latest release from [GitHub Releases](https://github.com/datavii/cc-share/releases):
+Download the latest release from [GitHub Releases](https://github.com/willbee-zheng/cc-share/releases):
 
 | Platform | File |
 |----------|------|
@@ -78,7 +89,7 @@ Download the latest release from [GitHub Releases](https://github.com/datavii/cc
 
 ```bash
 # Prerequisites: Rust 1.85+ (stable), Node 20+, pnpm 9+
-git clone https://github.com/datavii/cc-share.git
+git clone https://github.com/willbee-zheng/cc-share.git
 cd cc-share
 pnpm install
 npx vite build           # Build frontend
@@ -130,7 +141,7 @@ curl http://127.0.0.1:18081/v1/chat/completions \
 
 ### 4. Browser Extension (Optional)
 
-For sharing ChatGPT/Claude web sessions, install the [SharePlan browser extension](https://github.com/datavii/shareplan-extension).
+For sharing ChatGPT/Claude web sessions, install the [SharePlan browser extension](https://github.com/willbee-zheng/shareplan-extension).
 
 ## Configuration
 
@@ -138,7 +149,7 @@ SharePlan Desktop stores all settings in a local SQLite database. Key configurat
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Server address | Cloud server domain or `host:port` | — |
+| Server address | Cloud server domain or `host:port` | - |
 | Role | `Supplier`, `Consumer`, or `Idle` | `Idle` |
 | Local server port | Consumer mode OpenAI-compatible port | `18081` |
 | Heartbeat interval | How often to send heartbeats to cloud (seconds) | `30` |
@@ -155,13 +166,13 @@ Local data is stored in platform-specific directories:
 | Windows | `%APPDATA%\com.shareplan.desktop\` |
 | Linux | `~/.local/share/com.shareplan.desktop/` |
 
-The `share.db` SQLite file contains sharing settings, wallet data, task logs, and auth state. Delete this directory to reset.
+The `share.db` SQLite file contains sharing settings, wallet data, task logs, P2P session logs, and auth state. Delete this directory to reset.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Rust (Tauri v2), SQLite (rusqlite), tokio, reqwest, tokio-tungstenite |
+| Backend | Rust (Tauri v2), SQLite (rusqlite), tokio, reqwest, tokio-tungstenite, Axum |
 | Frontend | React 18, TypeScript, shadcn/ui components, Tailwind CSS |
 | Protocol | WebSocket (cloud connection), HTTP (local server + cc-switch proxy) |
 | Auth | JWT + HMAC-SHA256, device fingerprint binding |
@@ -172,24 +183,16 @@ The `share.db` SQLite file contains sharing settings, wallet data, task logs, an
 src-tauri/src/
 ├── auth/              Cloud server auth (login, register, token refresh, API keys)
 ├── ccswitch/          HTTP client for cc-switch local proxy
-│   ├── proxy_client.rs     HTTP client with streaming support
-│   ├── proxy_executor.rs   Task execution via cc-switch (Anthropic/OpenAI/Gemini formats)
-│   └── provider_registry.rs Provider discovery from cc-switch /status endpoint
 ├── commands/          Tauri IPC command handlers
 ├── content_filter/    Keyword-based content moderation
-├── credits/           Per-token pricing, settlement, wallet
-├── database/          Independent share.db (schema v4, DAOs)
+├── credits/           Per-token pricing, wallet
+├── database/          Independent share.db (schema v7, DAOs)
+├── diagnostics/       Runtime diagnostics
 ├── local_server/      OpenAI-compatible HTTP server (:18081) for consumer mode
-├── share/             P2P core
-│   ├── client.rs           WebSocket client with reconnect
-│   ├── daemon.rs           Daemon lifecycle management
-│   ├── supplier.rs         Task execution with content filter + mutex
-│   ├── consumer.rs         Cloud dispatch HTTP client
-│   ├── protocol.rs         Message types (NodeStatus, TaskPayload, TaskResult)
-│   ├── signing.rs           HMAC-SHA256 client-side signing
-│   ├── fingerprint.rs      Device fingerprint generation
-│   ├── web_bridge.rs       Local WS server for browser extension (:19829)
-│   └── web_executor.rs     Routes web: provider tasks to extension
+├── p2p/               P2P direct connect (NAT hole-punching, STUN, crypto)
+├── share/             P2P core (WebSocket client, daemon, supplier, consumer,
+│                      protocol, signing, mutex, fingerprint, web bridge)
+├── stats/             Daily stats sync with cloud-server
 └── system_log/        Log pipeline with batch writer + Tauri event emission
 
 src/
@@ -200,13 +203,13 @@ src/
 ├── providers/         Provider discovery and diagnostics
 ├── settings/          Server config, auth state
 ├── system_log/        Real-time log viewer
-└── lib/              API client, events, error mapping
+└── lib/               API client, events, error mapping
 ```
 
 ## Testing
 
 ```bash
-# Rust tests (150+ tests)
+# Rust tests (190+ tests)
 cd src-tauri && cargo test
 
 # TypeScript type check
@@ -237,9 +240,9 @@ npx vite build
 
 ## Related Projects
 
-- [shareplan-cloud](https://github.com/datavii/shareplan-cloud) — Cloud dispatch, auth, and billing server
-- [shareplan-dashboard](https://github.com/datavii/shareplan-dashboard) — Admin web UI
-- [shareplan-extension](https://github.com/datavii/shareplan-extension) — Chrome browser extension
+- [shareplan-cloud](https://github.com/willbee-zheng/shareplan-cloud) — Cloud dispatch, auth, and billing server
+- [shareplan-dashboard](https://github.com/willbee-zheng/shareplan-dashboard) — Admin web UI
+- [shareplan-extension](https://github.com/willbee-zheng/shareplan-extension) — Chrome browser extension
 - [cc-switch](https://github.com/farion1231/cc-switch) — Local AI provider proxy (separate project)
 
 ## License

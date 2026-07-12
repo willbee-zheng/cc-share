@@ -189,3 +189,35 @@ pub struct P2PAnswer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
+
+/// 结算回执 — 云端 Finalize 后推送给供应者/消费者的计费结果。
+///
+/// 通过 WebSocket 推送，也可通过 HTTP GET /settlements/recent 拉取。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettlementReceipt {
+    /// 任务 ID
+    pub task_id: String,
+    /// 方向：supply 或 consume
+    pub direction: String,
+    /// 代表性模型名
+    pub model: String,
+    /// 实际上游模型名
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_model: Option<String>,
+    /// 输入 Token 数
+    pub prompt_tokens: u32,
+    /// 输出 Token 数
+    pub completion_tokens: u32,
+    /// 积分（供应者收益 或 消费者支出），十进制字符串
+    pub credits: String,
+    /// 冻结金额（仅消费方向）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frozen: Option<String>,
+    /// 退还金额（仅消费方向）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refunded: Option<String>,
+    /// 操作后钱包余额
+    pub balance_after: String,
+    /// 时间戳（秒）
+    pub timestamp: i64,
+}
